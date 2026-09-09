@@ -1,0 +1,21 @@
+[submodule "common"]
+	path = common
+	url = https://github.com/hso-esk/spsec_common.git
+[submodule "platform"]
+	path = platform
+	url = https://github.com/hso-esk/spsec_platform_linux.git
+[submodule "spsec_participant"]
+	path = spsec_participant
+	url = https://github.com/hso-esk/spsec_participant.git
+[submodule "spsec_can_protocol"]
+	path = spsec_can_protocol
+	url = https://github.com/hso-esk/spsec_can_protocol.git
+[submodule "canopens_configurator_python"]
+	path = canopens_configurator_python
+	url = https://github.com/hso-esk/canopens_configurator_python.git
+[submodule "external/mbedtls"]
+	path = external/mbedtls
+	url = https://github.com/Mbed-TLS/mbedtls.git
+[submodule "external/wolfssl"]
+	path = external/wolfssl
+	url = https://github.com/wolfSSL/wolfssl.git

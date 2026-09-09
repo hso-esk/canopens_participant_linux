@@ -1,0 +1,9 @@
+# SPsec EXAMPLE / TEST key vectors - PUBLIC, non-secret. Do NOT use in production.
+# 12-byte (96-bit) salts - requires build with -DSPSEC_SALT_LEN=12 on both
+# participant and configurator.
+provisioning_key:0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20
+provisioning_salt:a92db1950306542cbdda4274
+integrator_key:2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40
+integrator_salt:74be96669131c88d8e558564
+seed_key:4142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f60
+seed_salt:0824bd6c6b4b3dcbb16ebe8f

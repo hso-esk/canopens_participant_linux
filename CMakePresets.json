@@ -1,0 +1,113 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 10,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "linux-wolfssl",
+      "displayName": "Linux + wolfSSL (default)",
+      "description": "Linux build with wolfSSL crypto backend",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "SPSEC_PLATFORM": "linux",
+        "SPSEC_CRYPTO_BACKEND": "wolfssl",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "linux-mbedtls",
+      "displayName": "Linux + mbedTLS",
+      "description": "Linux build with mbedTLS crypto backend",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "SPSEC_PLATFORM": "linux",
+        "SPSEC_CRYPTO_BACKEND": "mbedtls",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "linux-wolfssl-debug",
+      "displayName": "Linux + wolfSSL (Debug)",
+      "description": "Linux debug build with sanitizers",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "SPSEC_PLATFORM": "linux",
+        "SPSEC_CRYPTO_BACKEND": "wolfssl",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SANITIZE": "address"
+      }
+    },
+    {
+      "name": "linux-debug",
+      "displayName": "Linux + wolfSSL (secret logging)",
+      "description": "Debug build that logs key/salt/tag material for protocol debugging (SPSEC_LOG_SECRETS=ON). Never deploy this build - every other preset is production-shaped.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "SPSEC_PLATFORM": "linux",
+        "SPSEC_CRYPTO_BACKEND": "wolfssl",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SPSEC_LOG_SECRETS": "ON"
+      }
+    },
+    {
+      "name": "lpc55s16-wolfssl",
+      "displayName": "LPC55S16 + wolfSSL",
+      "description": "LPC55S16 bare metal cross-compile with wolfSSL",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "toolchainFile": "${sourceDir}/cmake/lpc55s16_toolchain.cmake",
+      "cacheVariables": {
+        "SPSEC_PLATFORM": "lpc55s16",
+        "SPSEC_CRYPTO_BACKEND": "wolfssl",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "lpc55s16-wolfssl-sdk",
+      "displayName": "LPC55S16 + wolfSSL (with SDK)",
+      "description": "LPC55S16 cross-compile with MCUXpresso SDK from env",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "toolchainFile": "${sourceDir}/cmake/lpc55s16_toolchain.cmake",
+      "cacheVariables": {
+        "SPSEC_PLATFORM": "lpc55s16",
+        "SPSEC_CRYPTO_BACKEND": "wolfssl",
+        "CMAKE_BUILD_TYPE": "Release",
+        "MCUX_SDK_PATH": "$env{MCUX_SDK_PATH}"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "build-all",
+      "displayName": "Build All Targets",
+      "description": "Build all configured presets sequentially",
+      "configurePreset": "linux-wolfssl"
+    },
+    {
+      "name": "build-linux",
+      "displayName": "Build Linux (wolfSSL)",
+      "configurePreset": "linux-wolfssl"
+    },
+    {
+      "name": "build-lpc55s16",
+      "displayName": "Build LPC55S16",
+      "configurePreset": "lpc55s16-wolfssl-sdk"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "test-linux",
+      "displayName": "Run Linux Tests",
+      "configurePreset": "linux-wolfssl",
+      "output": {"outputOnFailure": true}
+    }
+  ]
+}
