@@ -1,6 +1,8 @@
 # SPSEC Project
 
-This project implements the Security Protocol for Securing Electronic Communications (SPsec) over CAN FD. It provides a secure channel over an untrusted CAN network, guaranteeing confidentiality, integrity, and authenticity for CAN FD frames via a proxy architecture.
+This repository is an implementation of the [SPsec specification](https://cancrypt.net/spsec/) over CAN FD. 
+It provides a secure channel over an untrusted CAN network, guaranteeing confidentiality, integrity, and authenticity.
+Additional specifications are available at the [CANcrypt resources index](https://cancrypt.net/resources/index.html).
 
 ## SPsec Overview
 SPsec is designed as a **Small-Packet Network Security Sublayer**. It is primarily targeted at the lowest layer of the automation pyramid—connecting sensors and actuators to control units where traditional internet-style security (which might demand 256-bit overheads) is mathematically impossible due to extreme packet size limitations (e.g., standard CAN or CAN FD frames).
@@ -42,102 +44,17 @@ SPsec security operates on various pre-shared keys defined by strict priority an
 
 Security mechanisms include 1:1 sessions for mutual authentication (resembling cTLS/TLS-PSK), uniqueness values to prevent replay attacks, and a Secure Heartbeat for injection detection.
 
-## Modular Repository Structure
+## Repository Structure
 
 - **[common/](./common/README.md)**: Shared utilities handling cryptographic primitives, key management, message formatting, and backend abstractions for wolfSSL and mbedTLS.
 - **[platform/](./platform/README.md)**: Hardware/OS Abstraction Layer (HAL) providing unified access to underlying requirements like CAN interfaces, non-volatile storage, secure random number generation, and timers.
 - **[spsec_can_protocol/](./spsec_can_protocol/README.md)**: Logic mapping the SPsec Sublayer Data and Control planes down to CAN FD frames, satisfying the low-overhead requirements of small-packet serial networks.
 - **[spsec_participant/](./spsec_participant/README.md)**: The main SPSEC Participant application, implementing the SPsec roles and state machines (e.g. WAITING, SECURE) while orchestrating the separation of control and data planes.
+- **[canopens_configurator_python/](./canopens_configurator_python/README.md)**: Python GUI/CLI tool (`spsec_cli.py`) for provisioning and configuring participants; optional unless you need the configurator or its e2e/GUI tests.
 
-## License
+Supporting, non-submodule pieces: `wireshark/spsec.lua` (a Wireshark/tshark dissector for the protocol, see [Testing](#testing)) and `cmake/lpc55s16_toolchain.cmake` (cross-compile toolchain for the LPC55S16 target, see [Build Configuration](#build-configuration)).
 
-This project is licensed under the **BSD 3-Clause License**.
-See [LICENSE](./LICENSE) for full license text.
-
----
-
-## ⚠️ CRYPTO Backend & License Notice
-
-This project supports two crypto backends. The **default is wolfSSL**.
-Your obligations differ depending on which backend you use:
-
-| Backend | Backend License | Your binary license |
-|---|---|---|
-| **wolfSSL** (default) | GPLv3 or Commercial | Must be **GPLv3** or requires paid commercial wolfSSL license |
-| **mbedTLS** | Apache-2.0 | Remains **BSD 3-Clause** ✅ |
-
-### Building with wolfSSL (default)
-
-wolfSSL and mbedTLS are both included as git submodules, and **neither is
-initialized by a plain `git submodule update --init`** (which only pulls the
-required, non-crypto submodules below) - you pick one crypto backend
-explicitly. `run_all_tests.sh` looks for the wolfSSL build at `build/`
-(this is the default backend, so no `-DSPSEC_CRYPTO_BACKEND` needed):
-
-```bash
-git submodule update --init external/wolfssl
-cmake -B build -S .
-cmake --build build -j$(nproc)
-```
-
-By building with wolfSSL, you accept the terms of its license:
-- **Open source (GPLv3):** https://www.wolfssl.com/license/
-- **Commercial license:** available at https://www.wolfssl.com/license/ ($7,500/SKU)
-
-### Building with mbedTLS (BSD 3-Clause compatible)
-
-`run_all_tests.sh` picks this up automatically (as an extra CTest phase
-alongside the wolfSSL build above) if it finds it at `build_mbedtls/`:
-
-```bash
-git submodule update --init external/mbedtls
-cmake -B build_mbedtls -S . -DSPSEC_CRYPTO_BACKEND=mbedtls
-cmake --build build_mbedtls -j$(nproc)
-```
-
-mbedTLS is licensed under Apache-2.0, which is fully compatible with BSD 3-Clause.
-No additional license obligations apply.
-
-`CMakePresets.json` also defines named presets (`linux-wolfssl`,
-`linux-mbedtls`, plus debug/sanitizer/LPC55S16-cross-compile variants) if
-you'd rather use `cmake --preset <name>` - those build to
-`build/<preset-name>/` instead of the flat directories above, so point
-`SPSEC_BUILD_DIR`/`-B` at the right one when combining presets with the
-test scripts below.
-
----
-
-## Salt length and ASCON-128
-
-The pre-shared/provisioning salt length is a build-time option (`common/include/keys.h`,
-`SALT_LEN`, default 8 bytes per the SPsec spec):
-
-```bash
-cmake -B build -S . -DSPSEC_SALT_LEN=8            # default, SPsec-spec size
-cmake -B build_salt12 -S . -DSPSEC_SALT_LEN=12     # fills the control-plane nonce with no zero-padding
-```
-
-(`build_salt12/` is the name `run_all_tests.sh` looks for when adding the 12-byte-salt CTest phase.)
-
-The **participant and configurator must be built with the same `SPSEC_SALT_LEN`**
-and use a matching-length salt in their keys file for a given session. (16 bytes was considered and rejected: it behaves identically to 12 in every code path - the extra bytes are never consumed.)
-
-**ASCON-128 does *not* need a longer salt or any other build option** - it works
-against the plain default build. The data-plane nonce length is derived
-per-algorithm at runtime via `crypto_get_nonce_len(algorithm)` (12 bytes for
-AES-GCM/ChaCha20-Poly1305, 16 for ASCON-128), not from a build-time knob.
-
-Select the algorithm at runtime with `spsec_participant --ascon` or `--chacha` (default AES-GCM); the `canopens_configurator` binary needs the same flag for a given session, since AEAD tags are algorithm-specific.
-
-ASCON-128 is only implemented in the wolfSSL backend — a `--ascon` run needs the configurator built with wolfSSL too, even if the participant already defaults to it (see `tests/run_e2e_matrix.sh` for a full worked example across salt lengths, ASCON, and both crypto backends).
-
----
-
-> **Note:** This project (its source code) is licensed under BSD 3-Clause regardless
-> of which crypto backend you choose. The license obligations described above apply to
-> **compiled binaries** that you distribute, not to this repository itself.
-
-## Quickstart
+## Getting Started
 
 1. **Clone** the repository, then pull the required submodules (the shared
    code is split across several git submodules; `canopens_configurator_python`
@@ -153,6 +70,7 @@ ASCON-128 is only implemented in the wolfSSL backend — a `--ascon` run needs t
    cmake -B build -S .
    cmake --build build -j$(nproc)
    ```
+   This defaults to the wolfSSL backend, AES-GCM, and an 8-byte salt. For other crypto backends, algorithms, salt lengths, or the CMake presets shortcut, see [Build Configuration](#build-configuration).
 4. **Run** Run 2 participants and timesync:
    ```bash
    ./build/spsec_participant -s vcan0 -i vcan1 -p 123 -l DEBUG
@@ -173,6 +91,90 @@ The participant starts in the `WAITING` state and transitions to `SECURE` after 
    python ./tests/receive_can_data.py
    python ./tests/send_can_data.py
    ```
+
+## Build Configuration
+
+### Crypto Backend
+
+This project supports two crypto backends. The **default is wolfSSL**.
+Your obligations differ depending on which backend you use — see [License](#license).
+
+wolfSSL and mbedTLS are both included as git submodules, and **neither is
+initialized by a plain `git submodule update --init`** (which only pulls the
+required, non-crypto submodules above) - you pick one crypto backend
+explicitly.
+
+**wolfSSL (default).** `run_all_tests.sh` looks for the wolfSSL build at `build/`
+(this is the default backend, so no `-DSPSEC_CRYPTO_BACKEND` needed):
+
+```bash
+git submodule update --init external/wolfssl
+cmake -B build -S .
+cmake --build build -j$(nproc)
+```
+
+**mbedTLS.** `run_all_tests.sh` picks this up automatically (as an extra CTest phase
+alongside the wolfSSL build above) if it finds it at `build_mbedtls/`:
+
+```bash
+git submodule update --init external/mbedtls
+cmake -B build_mbedtls -S . -DSPSEC_CRYPTO_BACKEND=mbedtls
+cmake --build build_mbedtls -j$(nproc)
+```
+
+`CMakePresets.json` also defines named presets (`linux-wolfssl`,
+`linux-mbedtls`, plus debug/sanitizer/LPC55S16-cross-compile variants) if
+you'd rather use `cmake --preset <name>` instead of the flags above - those
+build to `build/<preset-name>/` instead of the flat directories shown here, so
+point `SPSEC_BUILD_DIR`/`-B` at the right one when combining presets with the
+test scripts below.
+
+### Salt Length
+
+The pre-shared/provisioning salt length is a build-time option (`common/include/keys.h`,
+`SALT_LEN`, default 8 bytes per the SPsec spec):
+
+```bash
+cmake -B build -S . -DSPSEC_SALT_LEN=8            # default, SPsec-spec size
+cmake -B build_salt12 -S . -DSPSEC_SALT_LEN=12     # fills the control-plane nonce with no zero-padding
+```
+
+(`build_salt12/` is the name `run_all_tests.sh` looks for when adding the 12-byte-salt CTest phase.)
+
+The **participant and configurator must be built with the same `SPSEC_SALT_LEN`**
+and use a matching-length salt in their keys file for a given session. (16 bytes was considered and rejected: it behaves identically to 12 in every code path - the extra bytes are never consumed.)
+
+### Algorithm Selection (ASCON-128)
+
+**ASCON-128 does *not* need a longer salt or any other build option** - it works
+against the plain default build. The data-plane nonce length is derived
+per-algorithm at runtime via `crypto_get_nonce_len(algorithm)` (12 bytes for
+AES-GCM/ChaCha20-Poly1305, 16 for ASCON-128), not from a build-time knob.
+
+Select the algorithm at runtime with `spsec_participant --ascon` or `--chacha` (default AES-GCM); the `canopens_configurator` binary needs the same flag for a given session, since AEAD tags are algorithm-specific.
+
+ASCON-128 is only implemented in the wolfSSL backend — a `--ascon` run needs the configurator built with wolfSSL too, even if the participant already defaults to it (see `tests/run_e2e_matrix.sh` for a full worked example across salt lengths, ASCON, and both crypto backends).
+
+## License
+
+This project's source code is licensed under the **BSD 3-Clause License**
+regardless of which crypto backend you choose. See [LICENSE](./LICENSE) for
+full license text.
+
+The obligations below apply only to **compiled binaries** that you distribute,
+and differ depending on which crypto backend you build with:
+
+| Backend | Backend License | Your binary license |
+|---|---|---|
+| **wolfSSL** (default) | GPLv3 or Commercial | Must be **GPLv3** or requires paid commercial wolfSSL license |
+| **mbedTLS** | Apache-2.0 | Remains **BSD 3-Clause** ✅ |
+
+By building with wolfSSL, you accept the terms of its license:
+- **Open source (GPLv3):** https://www.wolfssl.com/license/
+- **Commercial license:** available at https://www.wolfssl.com/license/ ($7,500/SKU)
+
+mbedTLS is licensed under Apache-2.0, which is fully compatible with BSD 3-Clause.
+No additional license obligations apply.
 
 ## Testing
 
@@ -201,7 +203,7 @@ their tool isn't installed:
 | `python3-tk` (system package, not pip) | `run_e2e_gui.sh` / `run_interactive_gui.sh` |
 
 `tests/example_keys_short_salt.txt` / `tests/example_keys_salt12.txt` are the
-matching key files for the two `SPSEC_SALT_LEN` build options (see above).
+matching key files for the two `SPSEC_SALT_LEN` build options (see [Build Configuration](#build-configuration)).
 
 ## CLI Summary
 
