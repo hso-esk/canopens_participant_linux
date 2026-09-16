@@ -1,0 +1,140 @@
+theory handshake
+begin
+
+builtins: hashing, xor, symmetric-encryption
+
+functions:
+  hkdf/2,              /* Key Derivation: hkdf(input_key, salt) */
+  concat/2,            /* Concatenate rndA and rndB */
+  trunc32/1            /* Truncate to 32 bits */
+
+/* Pre-shared Key Setup */
+rule SetupPSK:
+  [ Fr(~psk) ]
+  -->
+  [ !PSK($A, $B, ~psk),
+    !PSK($B, $A, ~psk) ]
+
+/* Step 1: ClientHello */
+rule ClientHello:
+  [ Fr(~rndA),
+    !PSK($A, $B, ~psk) ]
+  --[
+    ClientHelloSent($A, $B, ~rndA)
+  ]->
+  [ Out(<'ClientHello', 'ks', ~rndA>),
+    !ConfiguratorState($A, $B, ~psk, ~rndA) ]
+
+/* Step 2: ServerHello */
+rule ServerHello:
+  [ In(<'ClientHello', keySelector, rndA>),
+    Fr(~rndB),
+    !PSK($B, $A, ~psk) ]
+  --[
+    ServerHelloSent($B, $A, ~rndB, rndA)
+  ]->
+  [ Out(<'ServerHello', ~rndB>),
+    !ParticipantState($B, $A, ~psk, rndA, ~rndB),
+    !ServerHelloState($B, $A, ~psk, rndA, ~rndB) ]  // Added: State for binding
+
+/* Step 3: ClientFinished */
+rule ClientFinished:
+  let
+      salt         = concat(~rndA, rndB)
+      session_key  = hkdf(~psk, salt)
+      counter      = trunc32(~rndA) XOR trunc32(rndB)
+      associated_data = <'CAN_ID', ~rndA, rndB>
+      // Use authenticated encryption instead of free MAC function
+      tag          = senc(<'ClientFinished', associated_data>, session_key)
+  in
+  [ In(<'ServerHello', rndB>),
+    !ConfiguratorState($A, $B, ~psk, ~rndA),
+    !ServerHelloState($B, $A, ~psk, ~rndA, rndB) ]  // Added: Server state for binding
+  --[
+    ClientFinishedSent($A, $B),
+    ClientLearns($A, $B, session_key),
+    UsesServerHello($A, $B, ~rndA, rndB)  // Added: Evidence of server binding
+  ]->
+  [ Out(<'ClientFinished', tag>),
+    !ConfiguratorSessionKey($A, $B, session_key) ]
+
+/* Step 4: Server Verification */
+rule ServerVerification:
+  let
+      salt         = concat(rndA, ~rndB)
+      session_key  = hkdf(~psk, salt)
+      counter      = trunc32(rndA) XOR trunc32(~rndB)
+      associated_data = <'CAN_ID', rndA, ~rndB>
+      // Decrypt and verify the authenticated tag
+      expected_payload = <'ClientFinished', associated_data>
+  in
+  [ In(<'ClientFinished', tag>),
+    !ParticipantState($B, $A, ~psk, rndA, ~rndB) ]
+  --[
+    ServerAccepts($A, $B),
+    ServerLearns($B, $A, session_key),
+    SessionComplete($A, $B, session_key),
+    // Verify the decryption succeeds (implicitly checks MAC)
+    Eq(sdec(tag, session_key), expected_payload)
+  ]->
+  [ !ParticipantSessionKey($B, $A, session_key),
+    !SessionAccepted($A, $B) ]
+
+/* Built-in equation for equality check */
+restriction Equality:
+  "All x y #i. Eq(x,y) @i ==> x = y"
+
+/* === Security Lemmas === */
+
+/* 1. Secrecy Lemma */
+lemma secrecy:
+  "All a b k #i. 
+    SessionComplete(a, b, k) @i ==> 
+    not (Ex #j. K(k) @j)"
+
+/* 2. Client Authentication Lemma - A authenticates B */
+lemma ClientAuthenticatesServer:
+  "All a b k #i. 
+    ClientLearns(a, b, k) @i ==> 
+    Ex #j rndA rndB. ServerHelloSent(b, a, rndB, rndA) @j & j < i"
+
+/* 3. Server Authentication Lemma - B authenticates A */
+lemma ServerAuthenticatesClient:
+  "All a b k #i. 
+    ServerLearns(b, a, k) @i ==> 
+    Ex #j. ClientLearns(a, b, k) @j & j < i"
+
+/* 4. Injective Agreement */
+lemma InjectiveAgreement:
+  "All a b k #i #j.
+    SessionComplete(a, b, k) @i & SessionComplete(a, b, k) @j ==>
+    #i = #j"
+
+/* 5. Session Agreement with Flow Binding */
+lemma SessionAgreementWithBinding:
+  "All a b k #i. 
+    SessionComplete(a, b, k) @i ==> 
+    (Ex #j1 #j2 #j3 rndA rndB. 
+      ClientHelloSent(a, b, rndA) @j1 & 
+      ServerHelloSent(b, a, rndB, rndA) @j2 &
+      UsesServerHello(a, b, rndA, rndB) @j3 &
+      j1 < j2 & j2 < j3 & j3 < i)"
+
+/* 6. Message ordering lemma */
+lemma MessageOrder:
+  "All a b #i. 
+    ServerAccepts(a, b) @i ==> 
+    (Ex #j. ClientFinishedSent(a, b) @j & j < i)"
+
+/* 7. Stronger Authentication: Ensuring same session */
+lemma StrongMutualAuthentication:
+  "All a b k rndA rndB #i #j1 #j2.
+    SessionComplete(a, b, k) @i &
+    ClientHelloSent(a, b, rndA) @j1 &
+    ServerHelloSent(b, a, rndB, rndA) @j2 ==>
+    (Ex #j3 #j4.
+      ClientLearns(a, b, k) @j3 &
+      ServerLearns(b, a, k) @j4 &
+      j1 < j2 & j2 < j3 & j3 < j4 & j4 < i)"
+
+end

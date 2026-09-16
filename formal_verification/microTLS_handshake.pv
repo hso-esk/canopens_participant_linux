@@ -1,0 +1,117 @@
+type preSharedSymmetricKey.
+type symmetricSessionKey.
+
+fun deriveSymmetricSessionKey(preSharedSymmetricKey, bitstring, bitstring): symmetricSessionKey.
+
+(* AEAD: Encryption scheme *)
+fun enc(bitstring, symmetricSessionKey, bitstring): bitstring.
+reduc forall x:bitstring, k:symmetricSessionKey, r:bitstring; dec(enc(x,k,r),k,r) = x.
+(* AEAD: MAC *)
+fun mac(bitstring, symmetricSessionKey): bitstring.
+reduc forall x: bitstring, k: symmetricSessionKey; verify_mac(mac(x, k), x, k) = true.
+(* AEAD: Encrypt-then-MAC (EtM) *)
+fun AEAD_EtM_Enc(symmetricSessionKey,symmetricSessionKey,bitstring,bitstring,bitstring): bitstring.
+equation forall k_enc: symmetricSessionKey, k_mac: symmetricSessionKey, n: bitstring, p:bitstring, ad:bitstring;
+AEAD_EtM_Enc(k_enc, k_mac, n, p, ad) =
+(enc(p, k_enc, n), mac((n, ad, enc(p, k_enc, n)), k_mac)).
+
+reduc forall k_enc: symmetricSessionKey, k_mac: symmetricSessionKey, n: bitstring, p:bitstring, ad:bitstring;
+AEAD_EtM_Dec((enc(p, k_enc, n), mac((n, ad, enc(p, k_enc, n)), k_mac)), n, ad, k_enc) = p.
+
+reduc forall k_enc: symmetricSessionKey, k_mac: symmetricSessionKey, n: bitstring, p:bitstring, ad:bitstring;
+AEAD_EtM_Verify((enc(p, k_enc, n), mac((n, ad, enc(p, k_enc, n)), k_mac)), n, ad, k_mac) = true.
+
+fun AEAD_EtM_Ad(bitstring):bitstring.
+equation forall k_enc: symmetricSessionKey, k_mac: symmetricSessionKey, n:bitstring, p:bitstring, ad:bitstring;
+AEAD_EtM_Ad((enc(p, k_enc, n), mac((n, ad, enc(p, k_enc, n)), k_mac))) = ad.
+
+fun AEAD_EtM_N(bitstring):bitstring.
+equation forall k_enc: symmetricSessionKey, k_mac: symmetricSessionKey, n:bitstring, p:bitstring, ad:bitstring;
+AEAD_EtM_N((enc(p, k_enc, n), mac((n, ad, enc(p, k_enc, n)), k_mac))) = n.
+
+(*###################################*)
+(* AEAD: MAC-then-Encrypt *)
+fun AEAD_MtE_Enc(symmetricSessionKey,symmetricSessionKey,bitstring,bitstring,bitstring):bitstring.
+equation forall k: symmetricSessionKey, k_mac: symmetricSessionKey, n: bitstring, p:bitstring, ad:bitstring;
+AEAD_MtE_Enc(k, k_mac, n, p, ad) = enc((p, mac((n, ad, p), k_mac)), k, n).
+
+reduc forall k: symmetricSessionKey, k_mac: symmetricSessionKey, n: bitstring, p:bitstring, ad:bitstring;
+AEAD_MtE_Dec(enc((p, mac((n, ad, p), k_mac)), k, n), n, ad, k) = p.
+
+reduc forall k: symmetricSessionKey, k_mac: symmetricSessionKey, n: bitstring, p:bitstring, ad:bitstring;
+AEAD_MtE_Verify(enc((p, mac((n, ad, p), k_mac)), k, n), n, ad, k_mac) = true.
+
+fun AEAD_MtE_Ad(bitstring):bitstring.
+equation forall k:symmetricSessionKey, k_mac: symmetricSessionKey, n:bitstring, p:bitstring, ad:bitstring;
+AEAD_MtE_Ad(enc((p, mac((n, ad, p), k_mac)), k, n)) = ad.
+
+fun AEAD_MtE_N(bitstring):bitstring.
+equation forall k:symmetricSessionKey, k_mac: symmetricSessionKey, n:bitstring, p:bitstring, ad:bitstring;
+AEAD_MtE_N(enc((p, mac((n, ad, p), k_mac)), k, n)) = n.
+(*###################################*)
+
+(* Channel *)
+free c: channel.
+
+(* Pre-Shared Key *)
+free PSK:preSharedSymmetricKey [private].
+
+event reachability.
+
+event acceptAuthClient(symmetricSessionKey).
+event acceptAuthServer(symmetricSessionKey).
+event termAuthClient(symmetricSessionKey).
+event termAuthServer(symmetricSessionKey).
+
+let Client =
+    new ClientRandom: bitstring;
+    out(c, ClientRandom);
+    in(c, xServerRandom: bitstring);
+    new AEAD_nonce_client: bitstring;
+    let symSessKey = deriveSymmetricSessionKey(PSK, ClientRandom, xServerRandom) in 
+    let ClientFinished = AEAD_MtE_Enc(symSessKey, symSessKey, AEAD_nonce_client, AEAD_nonce_client, (ClientRandom,xServerRandom)) in
+    out(c, ClientFinished);
+    in(c, xServerFinished: bitstring);
+    let xAEAD_nonce_server = AEAD_MtE_N(xServerFinished) in
+    let xAD_server = AEAD_MtE_Ad(xServerFinished) in 
+    if (((AEAD_MtE_Verify(xServerFinished, xAEAD_nonce_server, xAD_server, symSessKey) = true)) && (xAD_server = (ClientRandom, xServerRandom, ClientFinished))) then 
+        event acceptAuthClient(symSessKey);
+        event reachability;
+        event termAuthClient(symSessKey);
+        
+    new Client_request: bitstring;
+    new Client_request_nonce: bitstring;
+    let Client_request_protected = AEAD_MtE_Enc(symSessKey, symSessKey, Client_request_nonce, Client_request_nonce, Client_request) in
+    out(c, Client_request_protected).
+
+let Server =
+    in(c, xClientRandom: bitstring);
+    new ServerRandom: bitstring;
+    out(c, ServerRandom);
+    in(c, xClientFinished: bitstring);
+    let symSessKey = deriveSymmetricSessionKey(PSK, xClientRandom, ServerRandom) in
+    let xAEAD_nonce_client = AEAD_MtE_N(xClientFinished) in
+    let xAD_client = AEAD_MtE_Ad(xClientFinished) in 
+    if ((AEAD_MtE_Verify(xClientFinished, xAEAD_nonce_client, xAD_client, symSessKey) = true) && (xAD_client = (xClientRandom, ServerRandom))) then
+        event acceptAuthServer(symSessKey);
+    new AEAD_nonce_server: bitstring;
+    let ServerFinished = AEAD_MtE_Enc(symSessKey, symSessKey, AEAD_nonce_server, AEAD_nonce_server, (xClientRandom,ServerRandom,xClientFinished)) in
+    out(c, ServerFinished);
+    
+    in(c, xClient_request_protected: bitstring);
+    if ((AEAD_MtE_Verify(xClient_request_protected, AEAD_MtE_N(xClient_request_protected), AEAD_MtE_Ad(xClient_request_protected), symSessKey) = true) && AEAD_MtE_N(xClient_request_protected) <> xAEAD_nonce_client && AEAD_MtE_N(xClient_request_protected) <> AEAD_nonce_server) then
+        event termAuthServer(symSessKey).
+    
+let credentialingSetup =
+    (!Client | !Server).
+
+
+query event(reachability).
+query symSessKey: symmetricSessionKey; event(termAuthServer(symSessKey)).
+query symSessKey: symmetricSessionKey; event(termAuthClient(symSessKey)).
+query attacker(PSK).
+query symSessKey: symmetricSessionKey; event(termAuthClient(symSessKey))==>event(acceptAuthServer(symSessKey)).  
+query symSessKey: symmetricSessionKey; event(termAuthServer(symSessKey))==>event(acceptAuthClient(symSessKey)).
+
+process 
+    (!credentialingSetup)
