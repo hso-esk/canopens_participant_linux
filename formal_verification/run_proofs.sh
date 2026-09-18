@@ -20,7 +20,7 @@ fail=0
 if command -v "$TAMARIN" >/dev/null; then
   for f in *.spthy; do
     out=$("$TAMARIN" --prove "$f" 2>&1)
-    summary=$(grep -E '(verified|falsified|analysis incomplete) \(' <<<"$out")
+    summary=$(grep -E ':\s+(verified|falsified|analysis incomplete)' <<<"$out")
     echo "== $f"; echo "$summary"
     [ -z "$summary" ] && fail=1
     grep -q 'analysis incomplete' <<<"$summary" && fail=1
