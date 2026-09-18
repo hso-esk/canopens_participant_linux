@@ -17,7 +17,6 @@ cd "$(dirname "$0")"
 TAMARIN=${TAMARIN:-tamarin-prover}
 PROVERIF=${PROVERIF:-proverif}
 fail=0
-
 if command -v "$TAMARIN" >/dev/null; then
   for f in *.spthy; do
     out=$("$TAMARIN" --prove "$f" 2>&1)
@@ -27,6 +26,8 @@ if command -v "$TAMARIN" >/dev/null; then
     grep -q 'analysis incomplete' <<<"$summary" && fail=1
     grep -q 'falsified' <<<"$summary" && fail=1
   done
+else
+  echo "== tamarin-prover: not found (skipping *.spthy)"
 fi
 
 if command -v "$PROVERIF" >/dev/null; then
@@ -37,18 +38,29 @@ if command -v "$PROVERIF" >/dev/null; then
     grep '^RESULT not event' <<<"$results" | grep -qv 'is false\.$' && fail=1
     grep -v '^RESULT not event' <<<"$results" | grep -qv 'is true\.$' && fail=1
   done
+else
+  echo "== proverif: not found (skipping *.pv)"
 fi
 
 # CRYPTOVERIF_LIB: path to CryptoVerif's default library, without .cvl
 CRYPTOVERIF=${CRYPTOVERIF:-cryptoverif}
+if [ -z "${CRYPTOVERIF_LIB:-}" ]; then
+  if [ -f "/opt/cryptoverif/default.cvl" ]; then
+    CRYPTOVERIF_LIB="/opt/cryptoverif/default"
+  elif [ -f "/usr/local/share/cryptoverif/default.cvl" ]; then
+    CRYPTOVERIF_LIB="/usr/local/share/cryptoverif/default"
+  fi
+fi
+
 if command -v "$CRYPTOVERIF" >/dev/null && [ -n "${CRYPTOVERIF_LIB:-}" ]; then
   for f in *.pcv; do
     out=$("$CRYPTOVERIF" -lib "$CRYPTOVERIF_LIB" "$f" 2>&1)
     echo "== $f"; grep -E '^RESULT (Proved|Could)|^All queries proved' <<<"$out"
     grep -q '^All queries proved' <<<"$out" || fail=1
   done
+else
+  echo "== cryptoverif: not found or CRYPTOVERIF_LIB not set (skipping *.pcv)"
 fi
-
 CBMC=${CBMC:-cbmc}
 if command -v "$CBMC" >/dev/null; then
   echo "== cbmc/parse_frame_harness.c"
@@ -68,6 +80,8 @@ if command -v "$CBMC" >/dev/null; then
     --bounds-check --pointer-check --unwind 300 --unwinding-assertions 2>&1)
   grep -E '^\*\* [0-9]+ of|^VERIFICATION' <<<"$out"
   grep -q '^VERIFICATION SUCCESSFUL' <<<"$out" || fail=1
+else
+  echo "== cbmc: not found (skipping CBMC harnesses)"
 fi
 
 exit $fail

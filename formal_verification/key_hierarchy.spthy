@@ -80,13 +80,12 @@ rule C_WriteIntegrator_Zero:
   [ !CKey(P, 'integ', ~key),
     Out(<'write', P, ~n, aead(k, ~n, <'integ', ~key>, <'wr', P>)>) ]
 
-/* Rule 4: When provisioned, Integrator Key can be changed via Prov or Integ session */
+/* Rule 4: When provisioned, Integrator Key is installed via Provisioning session */
 rule C_WriteIntegrator_Prov:
-  [ !CSess(P, ks, psk, k), Fr(~key), Fr(~n) ]
-  --[ Gen(P, 'integ', ~key, psk), InSetProvOrInteg(ks) ]->
+  [ !CSess(P, 'prov', psk, k), Fr(~key), Fr(~n) ]
+  --[ Gen(P, 'integ', ~key, psk) ]->
   [ !CKey(P, 'integ', ~key),
     Out(<'write', P, ~n, aead(k, ~n, <'integ', ~key>, <'wr', P>)>) ]
-
 /* Rule 2: Seed Key requires Integrator Key session */
 rule C_WriteSeed:
   [ !CSess(P, 'integ', psk, k), Fr(~key), Fr(~n) ]
@@ -102,25 +101,23 @@ rule P_InstallIntegrator_Zero:
   --[ Installed(P, 'integ', key), OnlyOnce(<'integ', P>), AcceptOnce(<k, n>) ]->
   [ !PSK(P, 'integ', key) ]
 
-/* Rule 4: Provisioned node accepts Integrator Key via Prov or Integ session */
+/* Rule 4: Provisioned node accepts Integrator Key via Prov session */
 rule P_InstallIntegrator_Prov:
-  [ DeviceProv(P), !PSess(P, ks, k),
+  [ DeviceProv(P), !PSess(P, 'prov', k),
     In(<'write', P, n, aead(k, n, <'integ', key>, <'wr', P>)>) ]
-  --[ Installed(P, 'integ', key), InSetProvOrInteg(ks), AcceptOnce(<k, n>) ]->
+  --[ Installed(P, 'integ', key), OnlyOnce(<'integ', P>), AcceptOnce(<k, n>) ]->
   [ !PSK(P, 'integ', key) ]
 
 /* Rule 2: Seed Key can only be written via Integrator Key session */
 rule P_InstallSeed:
   [ !PSess(P, 'integ', k),
     In(<'write', P, n, aead(k, n, <'seed', key>, <'wr', P>)>) ]
-  --[ Installed(P, 'seed', key), AcceptOnce(<k, n>) ]->
+  --[ Installed(P, 'seed', key), OnlyOnce(<'seed', P>), AcceptOnce(<k, n>) ]->
   [ ]
 
 restriction AcceptOnce:
   "All x #i #j. AcceptOnce(x) @i & AcceptOnce(x) @j ==> #i = #j"
 
-restriction ProvOrIntegWriteKeys:
-  "All ks #i. InSetProvOrInteg(ks) @i ==> ks = 'prov' | ks = 'integ'"
 /* === Lemmas === */
 
 lemma executable:
