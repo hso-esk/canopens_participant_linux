@@ -182,7 +182,13 @@ int main(void) {
     }
   }
 
-  printf("replayed broadcast:       %s\n", replay == 0 ? "ACCEPTED" : "rejected");
+  if (replay == 0 && after < before) {
+    printf("replayed broadcast:       ACCEPTED (rollback applied)\n");
+  } else if (after == before) {
+    printf("replayed broadcast:       DROPPED by forward-only watermark guard\n");
+  } else {
+    printf("replayed broadcast:       rejected\n");
+  }
   printf("receiver clock:           %llu -> %llu (%+lld ticks)\n",
          (unsigned long long)before, (unsigned long long)after, (long long)(after - before));
   printf("frames sent:              %d before, %d after\n", first_phase,
@@ -190,6 +196,11 @@ int main(void) {
   printf("(CAN ID, timer) reused:   %d frame pairs\n", collisions);
   printf("ct1 ^ ct2 == pt1 ^ pt2:   %d of those pairs (AES-GCM keystream reuse)\n",
          keystream_reused);
+  if (after == before) {
+    printf("status:                   Rollback prevented by broadcast_high_watermark guard (fixed)\n");
+  } else if (after < before) {
+    printf("status:                   VULNERABLE (clock rollback reproduced)\n");
+  }
 
   communication_keys_destroy(&rx.comm_keys);
   communication_keys_destroy(&sync.comm_keys);

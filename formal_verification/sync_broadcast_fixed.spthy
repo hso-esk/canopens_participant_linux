@@ -66,13 +66,13 @@ lemma broadcast_authentic:
      Adopt(E, tim) @i & not (Ex #r. RevealSeed() @r)
      ==> Ex #j. Broadcast(E, tim) @j & #j < #i"
 
-/* Verify replay attack is falsified after freshness fix. */
-lemma attack_broadcast_replay_rollback_is_closed:
-  exists-trace
-  "Ex E tim1 tim2 #b1 #b2 #a2 #a1.
+/* Freshness fix: an older broadcast cannot be adopted after a newer one (no rollback).
+   Expected: verified. */
+lemma replay_rollback_prevented:
+  "All E tim1 tim2 #b1 #b2 #a2 #a1.
      Broadcast(E, tim1) @b1 & Broadcast(E, tim2) @b2 &
      Adopt(E, tim2) @a2 & Adopt(E, tim1) @a1 &
-     #b1 < #b2 & #b2 < #a2 & #a2 < #a1 &
-     not (tim1 = tim2) & not (Ex #r. RevealSeed() @r)"
-
+     #b1 < #b2 & #b2 < #a2 &
+     not (tim1 = tim2) & not (Ex #r. RevealSeed() @r)
+     ==> not (#a2 < #a1)"
 end

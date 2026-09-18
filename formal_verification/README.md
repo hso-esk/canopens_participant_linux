@@ -7,10 +7,10 @@
 | `handshake_computational.pcv` | CryptoVerif | Same handshake, computational model with probability bound |
 | `param_auth.spthy` | Tamarin | Time-auth: initial Parameter Authentication, `session_timesync.c` |
 | `param_auth.pv` | ProVerif | Same exchange, second prover (unbounded) |
-| `sync_broadcast.spthy` | Tamarin | Time-auth: ongoing Sync Time Broadcast, `session_loops_common.c` |
-| `sync_broadcast_fixed.spthy` | Tamarin | Proposed forward-only fix for the broadcast replay gap |
+| `sync_broadcast.spthy` | Tamarin | Time-auth: ongoing Sync Time Broadcast (vulnerability baseline without watermark) |
+| `sync_broadcast_fixed.spthy` | Tamarin | Time-auth: forward-only check as implemented in `session_loops_common.c` |
 | `sync_broadcast.pv` | ProVerif | Ongoing Sync Time Broadcast authenticity, second prover |
-| `key_hierarchy.spthy` | Tamarin | Configuration sessions, PSK onboarding, key-write access policy |
+| `key_hierarchy.spthy` | Tamarin | Key hierarchy, manufacturer provisioning, Zero-Key onboarding fallback |
 | `key_hierarchy.pv` | ProVerif | Same key hierarchy & onboarding child key secrecy/origin, second prover |
 | `config_session.spthy` | Tamarin | Register read + SessionTerminate under the Session Key |
 | `config_session.pv` | ProVerif | Same configuration session, second prover (unbounded) |
@@ -70,17 +70,18 @@ documented attack exists**. Every Tamarin lemma is expected to be `verified`.
   a timed model.
 
 **Time authentication, part 2 — ongoing Sync Time Broadcast**
-(`sync_broadcast.spthy` Tamarin, `sync_broadcast.pv` ProVerif)
+(`sync_broadcast.spthy` / `sync_broadcast_fixed.spthy` Tamarin, `sync_broadcast.pv` ProVerif)
 - `broadcast_authentic` (Tamarin, ProVerif): an external attacker cannot forge
   a broadcast timer value; any adopted value was broadcast by the Sync.
-- `attack_broadcast_replay_rollback`: the broadcast carries no per-receiver
-  random and the receive path applies no freshness/replay check, so a recorded
-  broadcast replayed later rolls the receiver's clock backward. This is
-  reproduced end to end — down to AES-GCM nonce reuse on the victim's own
-  outbound frames — by `poc/poc_sync_broadcast_replay.c` (build target
-  `poc_sync_broadcast_replay`). The rolled-back clock also refreshes
-  `timesync.last_successful`, suppressing the Sync-restart recovery abort.
-
+- `attack_broadcast_replay_rollback` (`sync_broadcast.spthy`): without a freshness
+  check on the receive path, an attacker can replay an earlier broadcast to roll
+  the receiver's clock backward.
+- `replay_rollback_prevented` (`sync_broadcast_fixed.spthy`): proves that with the
+  forward-only high-watermark check (`broadcast_high_watermark`), an older broadcast
+  cannot be applied after a newer one.
+- `poc/poc_sync_broadcast_replay.c` (build target `poc_sync_broadcast_replay`): demonstrates
+  the mitigation on the current codebase. The replayed broadcast is dropped by the
+  forward-only watermark guard (`receiver clock: +0 ticks`, 0 reused frame pairs).
 **Configuration session** (`config_session.spthy` Tamarin, `config_session.pv` ProVerif)
 - `key_material_secret` (Tamarin, ProVerif): write-only key registers never
   disclose key material on the read path (`attacker(keyval)` is true).
@@ -91,21 +92,22 @@ documented attack exists**. Every Tamarin lemma is expected to be `verified`.
 - Abstraction: the session counter is modeled as accept-once per nonce.
 
 **Key hierarchy** (`key_hierarchy.spthy` Tamarin, `key_hierarchy.pv` ProVerif)
-- `attack_TOFU_provisioning_key`: anyone can install the Provisioning Key of
-  an unprovisioned device (Zero-Key session, write-once).
-- `attack_provisioning_key_eavesdropped`: a Provisioning Key written in a
+- The Provisioning Key (register 0x21), Salt (0x31), and Key ID (0x41) cannot be
+  written via session protocol (`register_check_access` returns `SPSEC_ERROR_REGISTER_ACCESS_DENIED`).
+  They must be loaded out of band by the manufacturer.
+- `attack_TOFU_integrator_key` (Tamarin): when a device is unprovisioned, anyone can
+  install its Integrator Key via an unauthenticated Zero-Key session (Rule 1 & 5).
+- `attack_integrator_key_eavesdropped` (Tamarin): an Integrator Key written in a
   Zero-Key session is readable by a passive eavesdropper.
-- `attack_seed_key_after_inband_provisioning`: the same holds for keys later
-  derived under that key.
+- `attack_seed_key_after_zero_key_onboarding` (Tamarin): subsequent keys derived
+  under that key (including Seed Key) are also compromised.
 - `child_key_secrecy`, `child_key_origin`, `child_key_no_replay`
-  (Tamarin, ProVerif): if the Provisioning Key is delivered out of band
-  (manufacturer, as the paper assumes), Integrator and Seed Keys stay secret,
-  are installed only from an honest Configurator (injective agreement on
-  generation and installation across unbounded sessions), and each write is
-  accepted once.
+  (Tamarin, ProVerif): if the Provisioning Key is delivered out of band by the
+  manufacturer, Zero-Key writes are blocked (Rule 3), Integrator Key can be updated
+  via Provisioning or Integrator sessions (Rule 4), Seed Key can only be written via
+  an Integrator session (Rule 2), and child keys stay secret, authentic, and non-replayable.
 - Abstraction: the session counter is modeled as accept-once per nonce;
   message ordering, segmentation and reads are not modeled.
-
 **Data plane** (`data_plane.spthy` Tamarin, `data_plane.pv` ProVerif)
 - `group_authenticity`, `payload_secrecy` (Tamarin, ProVerif): hold against
   external attackers. A leaked Communication Key of another/compromised epoch

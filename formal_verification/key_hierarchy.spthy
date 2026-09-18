@@ -21,11 +21,17 @@ equations: adec(aead(k, n, m, a), k, n, a) = m
 restriction OnlyOnce:
   "All x #i #j. OnlyOnce(x) @i & OnlyOnce(x) @j ==> #i = #j"
 
-/* Every device starts with the public Zero Key. */
-rule Device:
+/* Devices can be initialized as unprovisioned or provisioned at the factory. */
+rule Device_Unprovisioned:
   [ ] --[ OnlyOnce(<'device', $P>) ]->
-  [ !PSK($P, 'zero', 'zerokey'), !CKey($P, 'zero', 'zerokey') ]
+  [ !PSK($P, 'zero', 'zerokey'), !CKey($P, 'zero', 'zerokey'), DeviceUnprov($P) ]
 
+rule Device_Provisioned:
+  [ Fr(~key) ]
+  --[ Gen($P, 'prov', ~key, 'oob'), Installed($P, 'prov', ~key),
+      OnlyOnce(<'device', $P>), OnlyOnce(<'prov', $P>) ]->
+  [ !PSK($P, 'zero', 'zerokey'), !CKey($P, 'zero', 'zerokey'),
+    !CKey($P, 'prov', ~key), !PSK($P, 'prov', ~key), DeviceProv($P) ]
 /* ---- Handshake (as in microtls.spthy) ---- */
 
 rule C1_ClientHello:
@@ -61,57 +67,60 @@ rule S2_VerifyClientFinished:
   -->
   [ !PSess(P, ks, k), Out(<'sfin', P, tagS>) ]
 
-/* Provisioning in a trusted environment (e.g. factory line): the key
-   reaches device and Configurator without crossing the bus. */
-rule ProvisionOutOfBand:
-  [ Fr(~key) ]
-  --[ Gen($P, 'prov', ~key, 'oob'), Installed($P, 'prov', ~key),
-      OnlyOnce(<'prov', $P>) ]->
-  [ !CKey($P, 'prov', ~key), !PSK($P, 'prov', ~key) ]
+/* Provisioning Key cannot be written via protocol (register_check_access
+   returns SPSEC_ERROR_REGISTER_ACCESS_DENIED for 21h). It is only loaded
+   out-of-band at the factory as modeled by Device_Provisioned. */
 
 /* ---- Configurator: generate and write a child key ---- */
 
-rule C_WriteProvisioning:
+/* Rule 1 & 5: When unprovisioned, Integrator Key can be written via Zero-Key session */
+rule C_WriteIntegrator_Zero:
   [ !CSess(P, 'zero', psk, k), Fr(~key), Fr(~n) ]
-  --[ Gen(P, 'prov', ~key, psk), InBandProv(P) ]->
-  [ !CKey(P, 'prov', ~key),
-    Out(<'write', P, ~n, aead(k, ~n, <'prov', ~key>, <'wr', P>)>) ]
-
-rule C_WriteIntegrator:
-  [ !CSess(P, 'prov', psk, k), Fr(~key), Fr(~n) ]
-  --[ Gen(P, 'integ', ~key, psk) ]->
+  --[ Gen(P, 'integ', ~key, psk), InBandZeroOnboarding(P) ]->
   [ !CKey(P, 'integ', ~key),
     Out(<'write', P, ~n, aead(k, ~n, <'integ', ~key>, <'wr', P>)>) ]
 
-rule C_WriteSeed:
+/* Rule 4: When provisioned, Integrator Key can be changed via Prov or Integ session */
+rule C_WriteIntegrator_Prov:
   [ !CSess(P, ks, psk, k), Fr(~key), Fr(~n) ]
-  --[ Gen(P, 'seed', ~key, psk), InSet(ks) ]->
+  --[ Gen(P, 'integ', ~key, psk), InSetProvOrInteg(ks) ]->
+  [ !CKey(P, 'integ', ~key),
+    Out(<'write', P, ~n, aead(k, ~n, <'integ', ~key>, <'wr', P>)>) ]
+
+/* Rule 2: Seed Key requires Integrator Key session */
+rule C_WriteSeed:
+  [ !CSess(P, 'integ', psk, k), Fr(~key), Fr(~n) ]
+  --[ Gen(P, 'seed', ~key, psk) ]->
   [ Out(<'write', P, ~n, aead(k, ~n, <'seed', ~key>, <'wr', P>)>) ]
 
 /* ---- Participant: access policy of register_check_access ---- */
 
-rule P_InstallProvisioning:
-  [ !PSess(P, 'zero', k), In(<'write', P, n, aead(k, n, <'prov', key>, <'wr', P>)>) ]
-  --[ Installed(P, 'prov', key), OnlyOnce(<'prov', P>), AcceptOnce(<k, n>) ]->
-  [ !PSK(P, 'prov', key) ]
-
-rule P_InstallIntegrator:
-  [ !PSess(P, 'prov', k), In(<'write', P, n, aead(k, n, <'integ', key>, <'wr', P>)>) ]
+/* Rule 1 & 5: Unprovisioned node accepts Integrator Key via Zero-Key session (write-once) */
+rule P_InstallIntegrator_Zero:
+  [ DeviceUnprov(P), !PSess(P, 'zero', k),
+    In(<'write', P, n, aead(k, n, <'integ', key>, <'wr', P>)>) ]
   --[ Installed(P, 'integ', key), OnlyOnce(<'integ', P>), AcceptOnce(<k, n>) ]->
   [ !PSK(P, 'integ', key) ]
 
+/* Rule 4: Provisioned node accepts Integrator Key via Prov or Integ session */
+rule P_InstallIntegrator_Prov:
+  [ DeviceProv(P), !PSess(P, ks, k),
+    In(<'write', P, n, aead(k, n, <'integ', key>, <'wr', P>)>) ]
+  --[ Installed(P, 'integ', key), InSetProvOrInteg(ks), AcceptOnce(<k, n>) ]->
+  [ !PSK(P, 'integ', key) ]
+
+/* Rule 2: Seed Key can only be written via Integrator Key session */
 rule P_InstallSeed:
-  [ !PSess(P, ks, k), In(<'write', P, n, aead(k, n, <'seed', key>, <'wr', P>)>) ]
-  --[ Installed(P, 'seed', key), InSet(ks), AcceptOnce(<k, n>) ]->
+  [ !PSess(P, 'integ', k),
+    In(<'write', P, n, aead(k, n, <'seed', key>, <'wr', P>)>) ]
+  --[ Installed(P, 'seed', key), AcceptOnce(<k, n>) ]->
   [ ]
 
 restriction AcceptOnce:
   "All x #i #j. AcceptOnce(x) @i & AcceptOnce(x) @j ==> #i = #j"
 
-/* Seed Key writes need an Integrator Key session. */
-restriction SeedWriteKeys:
-  "All ks #i. InSet(ks) @i ==> ks = 'integ'"
-
+restriction ProvOrIntegWriteKeys:
+  "All ks #i. InSetProvOrInteg(ks) @i ==> ks = 'prov' | ks = 'integ'"
 /* === Lemmas === */
 
 lemma executable:
@@ -123,23 +132,23 @@ lemma executable:
      not (Ex #x. K(prov) @x)"
 
 /* Expected attack (trust on first use): anyone can install the
-   Provisioning Key of an unprovisioned device. */
-lemma attack_TOFU_provisioning_key:
+   Integrator Key of an unprovisioned device in a Zero-Key session. */
+lemma attack_TOFU_integrator_key:
   exists-trace
-  "Ex P key #i #j. Installed(P, 'prov', key) @i & K(key) @j &
-     not (Ex psk #g. Gen(P, 'prov', key, psk) @g)"
+  "Ex P key #i #j. Installed(P, 'integ', key) @i & K(key) @j &
+     not (Ex psk #g. Gen(P, 'integ', key, psk) @g)"
 
-/* Expected attack: passive eavesdropper learns Zero-Key protected key. */
-lemma attack_provisioning_key_eavesdropped:
+/* Expected attack: passive eavesdropper learns Zero-Key protected Integrator Key. */
+lemma attack_integrator_key_eavesdropped:
   exists-trace
-  "Ex P key #i #j. Gen(P, 'prov', key, 'zerokey') @i & K(key) @j"
+  "Ex P key #i #j. Gen(P, 'integ', key, 'zerokey') @i & K(key) @j"
 
-/* With the Provisioning Key delivered out of band (no in-band Zero-Key
-   provisioning of P), Integrator and Seed Keys stay secret. */
+/* With the Provisioning Key delivered out of band (factory),
+   Integrator and Seed Keys stay secret. */
 lemma child_key_secrecy:
   "All P t key parent #i.
      Gen(P, t, key, parent) @i & not (t = 'prov') &
-     not (Ex #z. InBandProv(P) @z)
+     not (Ex #z. InBandZeroOnboarding(P) @z)
      ==> not (Ex #j. K(key) @j)"
 
 /* Same assumption: every Integrator/Seed Key installed at P was generated
@@ -148,7 +157,7 @@ lemma child_key_origin:
   "All P t key #i.
      Installed(P, t, key) @i & not (t = 'prov') &
      (Ex pk #o. Gen(P, 'prov', pk, 'oob') @o) &
-     not (Ex #z. InBandProv(P) @z)
+     not (Ex #z. InBandZeroOnboarding(P) @z)
      ==> (Ex parent #j. Gen(P, t, key, parent) @j & #j < #i)"
 
 /* Same assumption: each honest key write is installed at most once. */
@@ -156,13 +165,13 @@ lemma child_key_no_replay:
   "All P t key parent pk #i #j #g #o.
      Installed(P, t, key) @i & Installed(P, t, key) @j &
      Gen(P, t, key, parent) @g & Gen(P, 'prov', pk, 'oob') @o &
-     not (t = 'prov') & not (Ex #z. InBandProv(P) @z)
+     not (t = 'prov') & not (Ex #z. InBandZeroOnboarding(P) @z)
      ==> #i = #j"
 
-/* Expected attack: with in-band Zero-Key provisioning, an eavesdropper
+/* Expected attack: with in-band Zero-Key onboarding, an eavesdropper
    also learns the child keys (Seed Key included). */
-lemma attack_seed_key_after_inband_provisioning:
+lemma attack_seed_key_after_zero_key_onboarding:
   exists-trace
-  "Ex P key parent #i #j. Gen(P, 'seed', key, parent) @i & K(key) @j"
-
+  "Ex P key parent #i #j. Gen(P, 'seed', key, parent) @i & K(key) @j &
+     (Ex #z. InBandZeroOnboarding(P) @z)"
 end

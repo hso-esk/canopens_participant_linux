@@ -95,7 +95,14 @@ process
       Client(p, prov, prov_k, integ, integ_k) |
       Server(p, prov, prov_k, integ)
     ) | (
-      (* Install Seed Key under Integrator Key *)
+      (* Rotate Integrator Key under Integrator Key (Rule 4) *)
+      new new_integ_k: key;
+      (
+        Client(p, integ, integ_k, integ, new_integ_k) |
+        Server(p, integ, integ_k, integ)
+      )
+    ) | (
+      (* Install Seed Key under Integrator Key (Rule 2) *)
       Client(p, integ, integ_k, seed, seed_k) |
       Server(p, integ, integ_k, seed)
     )

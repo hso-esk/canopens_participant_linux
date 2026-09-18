@@ -23,7 +23,10 @@ if command -v "$TAMARIN" >/dev/null; then
     out=$("$TAMARIN" --prove "$f" 2>&1)
     summary=$(grep -E '(verified|falsified|analysis incomplete) \(' <<<"$out")
     echo "== $f"; echo "$summary"
-    # Validate lemma pass and falsification results according to property type.
+    [ -z "$summary" ] && fail=1
+    grep -q 'analysis incomplete' <<<"$summary" && fail=1
+    grep -q 'falsified' <<<"$summary" && fail=1
+  done
 fi
 
 if command -v "$PROVERIF" >/dev/null; then
