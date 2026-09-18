@@ -46,6 +46,8 @@ if (( BASE_ID + NODES - 1 > 127 )); then
 fi
 
 RUNDIR="$(mktemp -d /tmp/spsec_scale20.XXXXXX)"
+export SPSEC_STORAGE_PATH="$RUNDIR/storage"
+mkdir -p "$SPSEC_STORAGE_PATH"
 declare -A PIDS
 TSA_PID=""
 OVERALL_RC=0
@@ -68,23 +70,22 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# iface_in goes up to vcan(NODES); setup_vcan.sh sets MTU 72 (required for
-# CAN FD) on every interface it creates, so provision through it rather than
-# a manual "ip link add" fallback that would silently skip the MTU.
-if ! ip link show "vcan$NODES" &>/dev/null; then
-  "$REPO_ROOT/setup_vcan.sh" "$NODES" || fail "vcan setup failed"
+if ! ip link show vcan0 &>/dev/null; then
+  "$REPO_ROOT/setup_vcan.sh" || fail "vcan setup failed"
 fi
 [[ -x "$PARTICIPANT_BIN" ]] || fail "participant not built: $PARTICIPANT_BIN"
 
 log "Starting ${NODES}-node mesh (TSA @ $BASE_ID, clients .. $((BASE_ID+NODES-1)))"
-"$PARTICIPANT_BIN" -i vcan0 -s vcan1 -p "$BASE_ID" -k "$KEYS_FILE" -t -l info \
+"$PARTICIPANT_BIN" -s vcan0 -i vcan1 -p "$BASE_ID" -k "$KEYS_FILE" -t -l info \
   > "$RUNDIR/tsa.log" 2>&1 &
 TSA_PID=$!
 
 for i in $(seq 1 $((NODES - 1))); do
   pid=$((BASE_ID + i))
   iface_in="vcan$((i + 1))"
-  "$PARTICIPANT_BIN" -i vcan0 -s "$iface_in" -p "$pid" -k "$KEYS_FILE" -l info \
+  ip link add dev "$iface_in" type vcan 2>/dev/null || true
+  ip link set up "$iface_in" 2>/dev/null || true
+  "$PARTICIPANT_BIN" -s vcan0 -i "$iface_in" -p "$pid" -k "$KEYS_FILE" -l info \
     > "$RUNDIR/client_${pid}.log" 2>&1 &
   PIDS[$pid]=$!
 done
@@ -110,6 +111,10 @@ for pid in "${!PIDS[@]}"; do
   fi
 done
 log "Final: SECURE=$secure WARNING=$warning WAITING/other=$waiting (of $((NODES - 1)) clients)"
+
+if (( secure == 0 )); then
+  fail "No clients reached SECURE state"
+fi
 
 # TSA must stay alive
 if ! kill -0 "$TSA_PID" 2>/dev/null; then

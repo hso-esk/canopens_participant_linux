@@ -9,12 +9,7 @@
  * included within the root folder of this work.
  */
 
-/**
- * @file test_sync_broadcast_no_window.c
- * @brief Verifies no acceptance-window check precedes the decrypt attempt in
- *        participant_handle_timesync_broadcast(), so a far-future but
- *        correctly-authenticated broadcast is still accepted and applied.
- */
+/* Verifies decrypt attempts precede acceptance window checks in sync broadcast. */
 
 #include "../spsec_participant/session_loops_internal.h"
 #include "crypto.h"
@@ -77,22 +72,24 @@ int main(void) {
   Participant p;
   init_test_participant(&p);
 
-  // Comfortably inside an epoch, so both rolling keys are well defined.
+  // Comfortably inside an epoch (well past the first bit-23 transition), so
+  // both rolling keys are well defined.
   const uint64_t local_ts = 0x05800000ULL + 1000ULL;
   uint8_t local_ts_le[8];
   u64_to_bytes_le(local_ts, local_ts_le);
 
+  // First timer_set_timestamp() on a fresh timer is always accepted
+  // (synced starts false) - this establishes the receiver's local clock.
   CHECK(timer_set_timestamp(&p.timer, local_ts_le) == 0,
         "receiver local clock established");
 
-  // Derive keys for local_ts and pick whichever key the handler tries first
+  // Derive keys for local_ts to ensure first-attempt decryption.
   CHECK(communication_keys_update(&p.comm_keys, local_ts_le) == 0,
         "communication keys derived for local_ts's epoch");
   uint8_t *first_key_ptr = p.comm_keys.use_odd_key ? p.comm_keys.odd_key
                                                    : p.comm_keys.even_key;
 
-  // Encrypt with the sender's timestamp equal to local_ts, so the trailer
-  // reconstructs exactly and the tag verifies on the first attempt.
+  // Encrypt with sender timestamp equal to local to isolate skew testing.
   uint8_t nonce[REQUIRED_NONCE_LEN] = {0};
   memcpy(nonce, local_ts_le, 8);
   nonce[8] = (uint8_t)(SYNC_BROADCAST_ADDR & 0xFF);
@@ -106,7 +103,7 @@ int main(void) {
   aad[3] = (uint8_t)((SYNC_BROADCAST_ADDR >> 24) & 0xFF);
   aad[4] = TIMESTAMP_SIZE + 2; // unpadded broadcast body length (10)
 
-  // Plaintext content: far past any acceptance window
+  // Plaintext timestamp forward of local clock to verify window handling.
   const uint64_t far_future_ts = local_ts + 1000000000ULL;
   uint8_t plaintext[TIMESTAMP_SIZE + 2];
   u64_to_bytes_le(far_future_ts, plaintext);
@@ -144,7 +141,8 @@ int main(void) {
   signed char ret = participant_handle_timesync_broadcast(&p, tsb_msg_ptr);
   CHECK(ret == 0,
         "broadcast decrypts and is accepted despite the far-future content "
-        "timestamp");
+        "timestamp - no acceptance-window check gates this path "
+        "(this is the property this test pins)");
 
   uint8_t applied_ts_le[8];
   timer_get_timestamp(&p.timer, applied_ts_le);

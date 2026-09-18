@@ -1,0 +1,78 @@
+/*
+ * Copyright (c) 2026
+ *
+ * Hochschule Offenburg, University of Applied Sciences
+ * Institute for reliable Embedded Systems
+ * and Communications Electronic (ivESK)
+ *
+ * This file is licensed as described in the "LICENSE" file
+ * included within the root folder of this work.
+ */
+
+theory sync_broadcast_fixed
+begin
+
+/* Tamarin model: SPsec sync broadcast fixed. */
+
+functions: hkdf/2, mac/2
+
+rule Setup:
+  [ Fr(~seed) ] --[ OnlyOnce('g') ]-> [ !Seed(~seed) ]
+
+rule Reveal_Seed:
+  [ !Seed(seed) ] --[ RevealSeed() ]-> [ Out(seed) ]
+
+rule Sync_Broadcast:
+  let ck = hkdf(seed, $E) in
+  [ !Seed(seed), Fr(~tim) ]
+  --[ Broadcast($E, ~tim) ]->
+  [ Out(<'synctime', $E, ~tim, mac(ck, <'synctime', $E, ~tim>)>) ]
+
+rule Recv_Adopt:
+  let ck       = hkdf(seed, E)
+      expected = mac(ck, <'synctime', E, tim>)
+  in
+  [ !Seed(seed), In(<'synctime', E, tim, tag>) ]
+  --[ Eq(tag, expected), Adopt(E, tim) ]->
+  [ ]
+
+restriction OnlyOnce:
+  "All x #i #j. OnlyOnce(x) @i & OnlyOnce(x) @j ==> #i = #j"
+restriction Eq:
+  "All x y #i. Eq(x, y) @i ==> x = y"
+
+/* The fix, as enforced by the receiver: if t1 is applied before t2, then t2
+   was not broadcast before t1 - i.e. applied values never go backwards. */
+restriction ForwardOnly:
+  "All E t1 t2 #i #j. Adopt(E, t1) @i & Adopt(E, t2) @j & #i < #j
+     ==> not (Ex #b1 #b2. Broadcast(E, t2) @b1 & Broadcast(E, t1) @b2
+              & #b1 < #b2)"
+
+/* === Lemmas === */
+
+/* The fix does not block legitimate operation: successive broadcasts are
+   still adopted in order. Expected: verified. */
+lemma executable:
+  exists-trace
+  "Ex E t1 t2 #b1 #b2 #a1 #a2.
+     Broadcast(E, t1) @b1 & Broadcast(E, t2) @b2 &
+     Adopt(E, t1) @a1 & Adopt(E, t2) @a2 &
+     #b1 < #b2 & #a1 < #a2 & not (t1 = t2) &
+     not (Ex #r. RevealSeed() @r)"
+
+/* Authenticity is unchanged. Expected: verified. */
+lemma broadcast_authentic:
+  "All E tim #i.
+     Adopt(E, tim) @i & not (Ex #r. RevealSeed() @r)
+     ==> Ex #j. Broadcast(E, tim) @j & #j < #i"
+
+/* Verify replay attack is falsified after freshness fix. */
+lemma attack_broadcast_replay_rollback_is_closed:
+  exists-trace
+  "Ex E tim1 tim2 #b1 #b2 #a2 #a1.
+     Broadcast(E, tim1) @b1 & Broadcast(E, tim2) @b2 &
+     Adopt(E, tim2) @a2 & Adopt(E, tim1) @a1 &
+     #b1 < #b2 & #b2 < #a2 & #a2 < #a1 &
+     not (tim1 = tim2) & not (Ex #r. RevealSeed() @r)"
+
+end

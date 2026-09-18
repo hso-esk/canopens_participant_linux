@@ -9,11 +9,7 @@
  * included within the root folder of this work.
  */
 
-/**
- * @file test_csalt_rederivation.c
- * @brief Verifies a csalt change always invalidates the derived communication keys,
- *        even when the even/odd key cache tag aliases between epochs.
- */
+/* Verifies csalt change invalidates derived communication keys. */
 
 #include "spsec_common.h"
 #include "participant.h"
@@ -65,7 +61,7 @@ int main(void) {
     return 1;
   }
 
-  // m1 and m2 share their low 16 bits, so the cache tag aliases between them.
+  // Epoch index with identical low 16 bits to test cache tag aliasing.
   const uint64_t PERIOD = 1ULL << 24;
   uint64_t m1 = 5, m2 = 5 + 0x10000ULL;
   uint8_t ts1[8], ts2[8];
@@ -99,7 +95,9 @@ int main(void) {
   CHECK(!is_all_zero(ck.odd_key, KEY_LEN),
         "Case 2: odd key re-derived (not stale)");
   CHECK(memcmp(ck.even_key, even_a, KEY_LEN) != 0,
-        "Case 2: even key differs from the stale csalt-A key");
+        "Case 2: even key differs from the stale csalt-A key "
+        "(this is the bug this test pins: without the fix the aliasing "
+        "cache tag suppresses re-derivation and this key stays even_a)");
   CHECK(memcmp(ck.odd_key, odd_a, KEY_LEN) != 0,
         "Case 2: odd key differs from the stale csalt-A key");
 

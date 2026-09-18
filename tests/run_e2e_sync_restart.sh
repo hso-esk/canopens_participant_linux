@@ -12,14 +12,7 @@
 #
 
 # End-to-end test for Sync-role restart recovery.
-#
-# Verifies that when the time authority restarts with a fresh csalt,
-# follower nodes detect the change, transition to WAITING, and
-# re-authenticate to restore synchronization.
-#
 # Usage: tests/run_e2e_sync_restart.sh [--keep] [--log-level LEVEL]
-#
-# Prerequisite: pip install -r canopens_configurator_python/requirements.txt
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -104,18 +97,13 @@ python3 -c "import can, Crypto" 2>/dev/null || {
   echo "[sync_restart] Python configurator deps missing; pip install -r $REPO_ROOT/canopens_configurator_python/requirements.txt" >&2
   exit 1
 }
-# Match on /proc/PID/exe, not on a name or a command line: `pgrep -f` also
-# matches any shell merely mentioning the binary, and `pgrep -x` never matches
-# because Linux truncates comm to 15 chars ("spsec_participa").
+# Match on /proc/PID/exe to avoid comm truncation false negatives.
 stale_participants() {
   local target p exe
   target="$(readlink -f "$PARTICIPANT_BIN" 2>/dev/null)" || return 0
   [ -n "$target" ] || return 0
   for p in /proc/[0-9]*; do
-    # A participant started before a rebuild still holds the OLD inode, and the
-    # kernel then renders its exe link as "<path> (deleted)". Strip that suffix,
-    # otherwise every stale process survives a rebuild undetected - which is
-    # exactly how one kept poisoning the bus.
+    # Strip deleted suffix to detect stale processes holding old inodes.
     exe="$(readlink "$p/exe" 2>/dev/null)"
     exe="${exe% (deleted)}"
     if [ "$exe" = "$target" ]; then
@@ -172,9 +160,7 @@ add_check "followers synchronized before restart" "$([[ $SYNCED_OK -eq 1 ]] && e
 declare -A MARK
 for pid in 121 122; do MARK[$pid]=$(wc -l < "$RUNDIR/p$pid.log"); done
 
-# --- 2. Restart the Sync role ---------------------------------------------------
-# It comes back with a fresh csalt (--csalt-regen defaults to powerup), so the
-# followers' derived Communication Keys can no longer verify its broadcasts.
+# Restart the Sync role with fresh csalt to verify follower re-sync.
 log "restarting the Sync role (pid 120)"
 kill "${PIDS[120]}" 2>/dev/null
 for _ in {1..20}; do kill -0 "${PIDS[120]}" 2>/dev/null || break; sleep 0.1; done

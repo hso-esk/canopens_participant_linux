@@ -1,0 +1,78 @@
+/*
+ * Copyright (c) 2026
+ *
+ * Hochschule Offenburg, University of Applied Sciences
+ * Institute for reliable Embedded Systems
+ * and Communications Electronic (ivESK)
+ *
+ * This file is licensed as described in the "LICENSE" file
+ * included within the root folder of this work.
+ */
+
+theory param_auth
+begin
+
+/* Tamarin model: SPsec param auth. */
+
+functions: hkdf/2, mac/2
+
+rule Setup_Group:
+  [ Fr(~seed), Fr(~csalt) ]
+  --[ OnlyOnce('group') ]->
+  [ !Seed(~seed), !Csalt(~csalt) ]
+
+/* Internal attacker: a compromised group member leaks the Seed Key. */
+rule Reveal_Seed:
+  [ !Seed(seed) ] --[ RevealSeed() ]-> [ Out(seed) ]
+
+rule P_Request:
+  [ !Seed(seed), Fr(~rnd) ]
+  --[ P_Req($P, ~rnd) ]->
+  [ St_P($P, seed, ~rnd), Out(<'auth_time_req', $P, ~rnd>) ]
+
+/* Sync answers any request; ~tim stands for its current timer value. */
+rule Sync_Respond:
+  let otk = hkdf(seed, <rnd, ~tim, csalt>)
+  in
+  [ In(<'auth_time_req', P, rnd>), !Seed(seed), !Csalt(csalt), Fr(~tim) ]
+  --[ S_Sent(P, rnd, ~tim, csalt) ]->
+  [ Out(<'auth_time_resp', P, ~tim, csalt,
+         mac(otk, <rnd, ~tim, csalt, 'canid', P>)>) ]
+
+rule P_Accept:
+  let otk = hkdf(seed, <rnd, tim, csalt>)
+  in
+  [ St_P(P, seed, rnd),
+    In(<'auth_time_resp', P, tim, csalt,
+        mac(otk, <rnd, tim, csalt, 'canid', P>)>) ]
+  --[ P_Accept(P, rnd, tim, csalt) ]->
+  [ ]
+
+restriction OnlyOnce:
+  "All x #i #j. OnlyOnce(x) @i & OnlyOnce(x) @j ==> #i = #j"
+
+/* === Lemmas === */
+
+lemma executable:
+  exists-trace
+  "Ex P rnd tim csalt #i. P_Accept(P, rnd, tim, csalt) @i &
+     not (Ex #r. RevealSeed() @r)"
+
+/* Timer value and csalt were sent by the Sync, for this very request
+   (after it), and each response is accepted at most once. */
+lemma sync_authentic_and_fresh:
+  "All P rnd tim csalt #i.
+     P_Accept(P, rnd, tim, csalt) @i & not (Ex #r. RevealSeed() @r)
+     ==> (Ex #k #j. P_Req(P, rnd) @k & S_Sent(P, rnd, tim, csalt) @j &
+                    k < j & j < i) &
+         not (Ex #i2. P_Accept(P, rnd, tim, csalt) @i2 & not (#i2 = #i))"
+
+/* T8 (expected: verified = attack exists): a Seed Key holder can make a
+   Participant adopt a timer value the Sync never sent. */
+lemma attack_T8_sync_impersonation:
+  exists-trace
+  "Ex P rnd tim csalt #i.
+     P_Accept(P, rnd, tim, csalt) @i &
+     not (Ex #j. S_Sent(P, rnd, tim, csalt) @j)"
+
+end

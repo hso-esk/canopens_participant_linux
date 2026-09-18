@@ -11,12 +11,7 @@
 # included within the root folder of this work.
 #
 
-# 10-Node Dynamic Join Under Active Bus Load
-#
-# Brings up 10 nodes in steady-state continuous traffic, then runs the
-# dynamic-join flow for an 11th node. Verifies zero packet loss on
-# existing sessions while the new node onboards.
-#
+# 10-node dynamic join test: onboards 11th node under active traffic.
 # Usage: tests/run_e2e_dynamic_join_10nodes.sh [--keep] [--duration SECONDS]
 
 set -uo pipefail

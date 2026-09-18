@@ -11,11 +11,7 @@
 # included within the root folder of this work.
 #
 
-# Full Factory Reset Roundtrip Test
-#
-# Verifies that sending the factory reset magic to register 0x7F erases
-# operational keys across power cycles while preserving the Provisioning Key.
-#
+# Full factory reset test: erases keys while preserving Provisioning Key.
 # Usage: tests/run_e2e_factory_reset.sh [--keep] [--log-level LEVEL]
 set -uo pipefail
 
@@ -91,7 +87,7 @@ export SPSEC_STORAGE_PATH="$RUNDIR/data"
 
 # --- 1. Start Participant ----------------------------------------------------
 log "starting participant PID $TARGET_PID (RUNDIR=$RUNDIR)"
-"$PARTICIPANT_BIN" -s vcan0 -i vcan2 -p "$TARGET_PID" -l "$LOG_LEVEL" \
+"$PARTICIPANT_BIN" -s vcan0 -i vcan2 -p "$TARGET_PID" -k "$SCRIPT_DIR/example_keys_provisioning_only.txt" -l "$LOG_LEVEL" \
   > "$RUNDIR/p$TARGET_PID.log" 2>&1 &
 PARTICIPANT_PID=$!
 wait_for_log "$RUNDIR/p$TARGET_PID.log" "Starting main loop" 10 || {
@@ -128,7 +124,7 @@ grep -q "Successfully reset PID $TARGET_PID" "$RUNDIR/reset.log" \
   || add_check "factory reset command executed with success code 0" FAIL
 
 # Verify storage contains the manufacturer reset flag
-FLAG_FILE="$(ls "${SPSEC_STORAGE_PATH}_${TARGET_PID}/config/manufacturer_reset"* 2>/dev/null | head -n 1)"
+FLAG_FILE="$(ls "${SPSEC_STORAGE_PATH}/${TARGET_PID}/config/manufacturer_reset"* "${SPSEC_STORAGE_PATH}_${TARGET_PID}/config/manufacturer_reset"* 2>/dev/null | head -n 1)"
 [[ -n "$FLAG_FILE" && -f "$FLAG_FILE" ]] \
   && add_check "manufacturer_reset persistence flag written to storage" PASS \
   || add_check "manufacturer_reset persistence flag written to storage" FAIL

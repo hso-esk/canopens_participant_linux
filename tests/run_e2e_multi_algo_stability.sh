@@ -11,12 +11,7 @@
 # included within the root folder of this work.
 #
 
-# Multi-Algorithm E2E Stability Test
-#
-# Brings up 4 participants and runs the same traffic flow under each
-# supported AEAD algorithm (AES-GCM, ChaCha20-Poly1305, ASCON-128) and
-# reports per-algorithm throughput.
-#
+# Multi-algorithm stability test comparing AES-GCM, ChaCha20, and ASCON.
 # Usage: tests/run_e2e_multi_algo_stability.sh [--keep]
 
 set -uo pipefail
@@ -43,6 +38,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 RUNDIR="$(mktemp -d /tmp/spsec_multialgo.XXXXXX)"
+CURRENT_PIDS=""
 OVERALL_RC=0
 
 log() { echo "[multialgo] $*"; }
@@ -50,6 +46,9 @@ fail() { echo "[multialgo] FAIL: $*" >&2; OVERALL_RC=1; }
 
 cleanup() {
   local rc=$?
+  if [[ -n "${CURRENT_PIDS:-}" ]]; then
+    kill -9 $CURRENT_PIDS 2>/dev/null || true
+  fi
   (( KEEP )) || rm -rf "$RUNDIR"
   exit $rc
 }
@@ -60,6 +59,17 @@ if ! ip link show vcan0 &>/dev/null; then
 fi
 [[ -x "$PARTICIPANT_BIN" ]] || fail "participant not built: $PARTICIPANT_BIN"
 
+wait_for_ready() {
+  local logfile="$1" timeout="$2"
+  local waited=0
+  while (( waited < timeout * 10 )); do
+    grep -q "State transition: Waiting -> Secure" "$logfile" 2>/dev/null && return 0
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  return 1
+}
+
 run_algo() {
   local label="$1"
   shift
@@ -67,24 +77,51 @@ run_algo() {
   log "=== ${label} ==="
   local aldir="$RUNDIR/${label}"
   mkdir -p "$aldir"
+  export SPSEC_STORAGE_PATH="$aldir/storage"
+  mkdir -p "$SPSEC_STORAGE_PATH"
 
-  "$PARTICIPANT_BIN" -i vcan0 -s vcan1 -p 120 -k "$KEYS_FILE" -t "${extra[@]}" -l info \
+  "$PARTICIPANT_BIN" -s vcan0 -i vcan1 -p 120 -k "$KEYS_FILE" -t "${extra[@]}" -l info \
     > "$aldir/tsa.log" 2>&1 &
   local tsa_pid=$!
-  "$PARTICIPANT_BIN" -i vcan0 -s vcan2 -p 121 -k "$KEYS_FILE" "${extra[@]}" -l info \
+  "$PARTICIPANT_BIN" -s vcan0 -i vcan2 -p 121 -k "$KEYS_FILE" "${extra[@]}" -l info \
     > "$aldir/client.log" 2>&1 &
   local c_pid=$!
+  CURRENT_PIDS="$tsa_pid $c_pid"
 
-  sleep 3
+  if ! wait_for_ready "$aldir/tsa.log" 5; then
+    fail "TSA ($label) failed to reach SECURE state"
+  fi
+  if ! wait_for_ready "$aldir/client.log" 5; then
+    fail "Client ($label) failed to reach SECURE state"
+  fi
 
-  python3 "$SCRIPT_DIR/benchmark_latency.py" --count 50 --gap 0.01 --json \
-    > "$aldir/latency.json" 2>&1 || true
+  if ! python3 "$SCRIPT_DIR/benchmark_latency.py" --count 50 --gap 0.01 --json \
+    > "$aldir/latency.json" 2>&1; then
+    fail "$label benchmark execution failed"
+  fi
   cat "$aldir/latency.json" 2>/dev/null | head -n 12
 
-  kill "$c_pid" 2>/dev/null
-  kill "$tsa_pid" 2>/dev/null
-  wait "$c_pid" 2>/dev/null
-  wait "$tsa_pid" 2>/dev/null
+  if grep -q '"error"' "$aldir/latency.json" 2>/dev/null; then
+    fail "$label benchmark reported error"
+  fi
+
+  # Check both participants are still alive before stopping them
+  if ! kill -0 "$tsa_pid" 2>/dev/null; then
+    fail "TSA died during $label benchmark"
+  fi
+  if ! kill -0 "$c_pid" 2>/dev/null; then
+    fail "Client died during $label benchmark"
+  fi
+
+  kill "$c_pid" "$tsa_pid" 2>/dev/null || true
+  for _ in {1..20}; do
+    kill -0 "$c_pid" 2>/dev/null || kill -0 "$tsa_pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  kill -9 "$c_pid" "$tsa_pid" 2>/dev/null || true
+  wait "$c_pid" 2>/dev/null || true
+  wait "$tsa_pid" 2>/dev/null || true
+  CURRENT_PIDS=""
 }
 
 run_algo "aes-gcm"
@@ -92,6 +129,6 @@ run_algo "chacha" --chacha
 run_algo "ascon"  --ascon
 
 if (( OVERALL_RC == 0 )); then
-  log "PASS: all 3 algorithms ran without crashing"
+  log "PASS: all 3 algorithms ran without crashing and verified end-to-end traffic"
 fi
 exit $OVERALL_RC

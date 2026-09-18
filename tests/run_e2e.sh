@@ -11,10 +11,8 @@
 # included within the root folder of this work.
 #
 
-# End-to-end test: bring up 3 SPsec participants, provision via configurator,
-# exchange CANopen traffic, and assert results.
-#
-# Usage: tests/run_e2e.sh [--keep] [--log-level LEVEL] [--keys FILE] [--strict] [--algo aes-gcm|chacha|ascon]
+# End-to-end test: brings up 3 participants, provisions, and verifies traffic.
+# Usage: tests/run_e2e.sh [--keep] [--log-level LEVEL] [--keys FILE] [--strict] [--algo ALGO]
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -195,7 +193,7 @@ add_check "configurator provisioning" "$([[ $CONFIGURATOR_OK -eq 1 ]] && echo PA
 # --- 6. Data plane ---------------------------------------------------------------
 log "starting receiver on vcan2"
 python3 "$SCRIPT_DIR/receive_can_data.py" --channel vcan2 --count 8 --timeout 15 \
-  --out "$RUNDIR/rx.txt" > "$RUNDIR/rx.log" 2>&1 &
+  --standard-only --out "$RUNDIR/rx.txt" > "$RUNDIR/rx.log" 2>&1 &
 RX_PID=$!
 
 sleep 0.5

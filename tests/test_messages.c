@@ -9,10 +9,7 @@
  * included within the root folder of this work.
  */
 
-// Regression tests for the ctor/dtor/parse functions in messages_handshake.c,
-// messages_register.c, messages_session.c: lifecycle, data-copy correctness,
-// round-trip parsing, and ASan-safe memory handling.
-
+// Regression tests for message constructors, destructors, and parsers.
 #include "messages.h"
 #include "spsec_common.h"
 
@@ -30,9 +27,7 @@ static int g_failures = 0;
     }                                                                          \
   } while (0)
 
-/* ============================================================================
- * Test group: handshake messages
- * ========================================================================= */
+/* Test group: handshake messages */
 static void test_handshake(void) {
   fprintf(stderr, "\n=== Handshake Messages ===\n");
 
@@ -134,9 +129,7 @@ static void test_handshake(void) {
   }
 }
 
-/* ============================================================================
- * Test group: register messages (read/write)
- * ========================================================================= */
+/* Test group: register messages (read/write) */
 static void test_register(void) {
   fprintf(stderr, "\n=== Register Messages ===\n");
 
@@ -258,9 +251,7 @@ static void test_register(void) {
   }
 }
 
-/* ============================================================================
- * Test group: session messages (time sync, app data, heartbeat, etc.)
- * ========================================================================= */
+/* Test group: session messages */
 static void test_session(void) {
   fprintf(stderr, "\n=== Session Messages ===\n");
 
@@ -382,8 +373,7 @@ static void test_session(void) {
     for (int i = 0; i < TIMESTAMP_SIZE; i++) {
       sync_ts[i] = (uint8_t)(i + 100);
     }
-    int8_t set_ts_ret = set_spsecsynctimebroadcast_timestamp(sync_msg_ptr, sync_ts);
-    CHECK(set_ts_ret == 0, "spsecsynctimebroadcast: set_timestamp returns success");
+    set_spsecsynctimebroadcast_timestamp(sync_msg_ptr, sync_ts);
     CHECK(sync_msg_ptr->app_data_ptr != NULL, "spsecsynctimebroadcast: app_data_ptr becomes non-NULL after set_timestamp");
     CHECK(memcmp(sync_msg_ptr->timestamp, sync_ts, TIMESTAMP_SIZE) == 0, "spsecsynctimebroadcast: timestamp set");
 

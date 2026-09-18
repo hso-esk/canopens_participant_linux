@@ -11,11 +11,7 @@
 # included within the root folder of this work.
 #
 
-# End-to-end test for automatic device discovery and onboarding.
-#
-# Scans for unprovisioned devices using the Zero Key, skips already-provisioned
-# devices, and provisions new participants through the key ladder.
-#
+# End-to-end test for discovery and key ladder onboarding.
 # Usage: tests/run_e2e_provision_discovered.sh [--keep] [--log-level LEVEL]
 set -uo pipefail
 
@@ -92,18 +88,13 @@ fi
 [[ -f "$CONFIGURATOR_CLI" ]] || { echo "[provdisc] configurator submodule missing" >&2; exit 1; }
 python3 -c "import can, Crypto" 2>/dev/null || {
   echo "[provdisc] Python configurator deps missing" >&2; exit 1; }
-# Match on /proc/PID/exe, not on a name or a command line: `pgrep -f` also
-# matches any shell merely mentioning the binary, and `pgrep -x` never matches
-# because Linux truncates comm to 15 chars ("spsec_participa").
+# Match on /proc/PID/exe to avoid comm truncation false negatives.
 stale_participants() {
   local target p exe
   target="$(readlink -f "$PARTICIPANT_BIN" 2>/dev/null)" || return 0
   [ -n "$target" ] || return 0
   for p in /proc/[0-9]*; do
-    # A participant started before a rebuild still holds the OLD inode, and the
-    # kernel then renders its exe link as "<path> (deleted)". Strip that suffix,
-    # otherwise every stale process survives a rebuild undetected - which is
-    # exactly how one kept poisoning the bus.
+    # Strip deleted suffix to detect stale processes holding old inodes.
     exe="$(readlink "$p/exe" 2>/dev/null)"
     exe="${exe% (deleted)}"
     if [ "$exe" = "$target" ]; then

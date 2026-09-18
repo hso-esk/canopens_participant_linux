@@ -1,0 +1,55 @@
+(*
+ * Copyright (c) 2026
+ *
+ * Hochschule Offenburg, University of Applied Sciences
+ * Institute for reliable Embedded Systems
+ * and Communications Electronic (ivESK)
+ *
+ * This file is licensed as described in the "LICENSE" file
+ * included within the root folder of this work.
+ *)
+
+(* ProVerif model: SPsec param auth. *)
+
+free c: channel.
+
+type key.
+type nonce.
+
+fun hkdf(key, bitstring): key.
+fun mac(key, bitstring): bitstring.
+
+free seed: key [private].
+const canid: bitstring.
+
+event Requested(nonce).
+event SyncSent(nonce, bitstring, bitstring).
+event Accepted(nonce, bitstring, bitstring).
+
+(* Seed stays secret (and so, since rnd/tim/csalt are public, does the
+   derived one-time key). *)
+query attacker(seed).
+
+(* Injective agreement Sync -> Participant for timestamp freshness. *)
+query r: nonce, t: bitstring, cs: bitstring;
+  inj-event(Accepted(r, t, cs)) ==> inj-event(SyncSent(r, t, cs)).
+
+let Participant =
+  new rnd: nonce;
+  event Requested(rnd);
+  out(c, (canid, rnd));
+  in(c, (tim: bitstring, csalt: bitstring, tag: bitstring));
+  let otk = hkdf(seed, (rnd, tim, csalt)) in
+  if tag = mac(otk, (rnd, tim, csalt, canid)) then
+  event Accepted(rnd, tim, csalt).
+
+let Sync =
+  in(c, (xcanid: bitstring, rnd: nonce));
+  new tim: bitstring;
+  new csalt: bitstring;
+  let otk = hkdf(seed, (rnd, tim, csalt)) in
+  event SyncSent(rnd, tim, csalt);
+  out(c, (tim, csalt, mac(otk, (rnd, tim, csalt, xcanid)))).
+
+process
+  (!Participant) | (!Sync)

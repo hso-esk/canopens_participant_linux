@@ -10,7 +10,7 @@
 # included within the root folder of this work.
 
 """Runs the participant under valgrind memcheck, summarizes leaks/errors.
-Usage: tests/run_under_valgrind.py [--keep] [--duration SECONDS]"""
+Usage: tests/run_under_valgrind.sh [--keep] [--duration SECONDS]"""
 import argparse
 import os
 import subprocess

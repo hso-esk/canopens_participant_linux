@@ -1,0 +1,69 @@
+/*
+ * Copyright (c) 2026
+ *
+ * Hochschule Offenburg, University of Applied Sciences
+ * Institute for reliable Embedded Systems
+ * and Communications Electronic (ivESK)
+ *
+ * This file is licensed as described in the "LICENSE" file
+ * included within the root folder of this work.
+ */
+
+theory sync_broadcast
+begin
+
+/* Tamarin model: SPsec sync broadcast. */
+
+functions: hkdf/2, mac/2
+
+rule Setup:
+  [ Fr(~seed) ] --[ OnlyOnce('g') ]-> [ !Seed(~seed) ]
+
+/* Internal attacker: Seed Key holder leaks it. */
+rule Reveal_Seed:
+  [ !Seed(seed) ] --[ RevealSeed() ]-> [ Out(seed) ]
+
+/* Sync broadcasts its current timer value tim in epoch E. */
+rule Sync_Broadcast:
+  let ck = hkdf(seed, $E) in
+  [ !Seed(seed), Fr(~tim) ]
+  --[ Broadcast($E, ~tim) ]->
+  [ Out(<'synctime', $E, ~tim, mac(ck, <'synctime', $E, ~tim>)>) ]
+
+/* A receiver that verifies the tag adopts tim - no freshness/replay check. */
+rule Recv_Adopt:
+  let ck       = hkdf(seed, E)
+      expected = mac(ck, <'synctime', E, tim>)
+  in
+  [ !Seed(seed), In(<'synctime', E, tim, tag>) ]
+  --[ Eq(tag, expected), Adopt(E, tim) ]->
+  [ ]
+
+restriction OnlyOnce:
+  "All x #i #j. OnlyOnce(x) @i & OnlyOnce(x) @j ==> #i = #j"
+restriction Eq:
+  "All x y #i. Eq(x, y) @i ==> x = y"
+
+/* === Lemmas === */
+
+lemma executable:
+  exists-trace
+  "Ex E tim #i. Adopt(E, tim) @i & not (Ex #r. RevealSeed() @r)"
+
+/* Authenticity: any adopted timer value was really broadcast by the Sync
+   (an external attacker cannot forge one). Expected: verified. */
+lemma broadcast_authentic:
+  "All E tim #i.
+     Adopt(E, tim) @i & not (Ex #r. RevealSeed() @r)
+     ==> Ex #j. Broadcast(E, tim) @j & j < i"
+
+/* Replay / rollback verification in same epoch. */
+lemma attack_broadcast_replay_rollback:
+  exists-trace
+  "Ex E tim1 tim2 #b1 #b2 #a2 #a1.
+     Broadcast(E, tim1) @b1 & Broadcast(E, tim2) @b2 &
+     Adopt(E, tim2) @a2 & Adopt(E, tim1) @a1 &
+     b1 < b2 & b2 < a2 & a2 < a1 &
+     not (tim1 = tim2) & not (Ex #r. RevealSeed() @r)"
+
+end

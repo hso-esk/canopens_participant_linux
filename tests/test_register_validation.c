@@ -9,12 +9,7 @@
  * included within the root folder of this work.
  */
 
-/**
- * @file test_register_validation.c
- * @brief Unit tests for register validation functions
- *        (register_is_key_set, register_validate_key_installation_sequence,
- *         register_check_access).
- */
+/* Unit tests for register validation and access control. */
 
 #include "spsec_common.h"
 #include "register_validation.h"
@@ -44,9 +39,7 @@ static void init_test_participant(Participant *p_ptr) {
   memset(p_ptr, 0, sizeof(*p_ptr));
 }
 
-/* ============================================================
- * Test register_is_key_set
- * ============================================================ */
+/* Test register_is_key_set */
 
 static void test_register_is_key_set(void) {
   Participant p;
@@ -92,9 +85,7 @@ static void test_register_is_key_set(void) {
   }
 }
 
-/* ============================================================
- * Test register_validate_key_installation_sequence
- * ============================================================ */
+/* Test register_validate_key_installation_sequence */
 
 static void test_register_validate_key_installation_sequence(void) {
   Participant p;
@@ -106,36 +97,39 @@ static void test_register_validate_key_installation_sequence(void) {
   CHECK(register_validate_key_installation_sequence(&p, 0x23) == SPSEC_SUCCESS,
         "SEED_KEY (0x23): always returns SPSEC_SUCCESS");
 
-  /* Case: reg=0x21 (PROVISIONING_KEY), key not set -> SPSEC_SUCCESS */
-  CHECK(register_validate_key_installation_sequence(&p, 0x21) == SPSEC_SUCCESS,
-        "PROVISIONING_KEY (0x21): not set -> SPSEC_SUCCESS");
-
-  /* Case: reg=0x21, key already set -> SPSEC_ERROR_KEY_ALREADY_SET */
-  {
-    SPsecKey *k_ptr = spseckey_new(0x11111111u, dummy_key);
-    CHECK(k_ptr != NULL, "spseckey_new for PROVISIONING_KEY already-set test");
-    if (k_ptr) {
-      p.comm_keys.spsec_keys[1] = k_ptr;
-      CHECK(register_validate_key_installation_sequence(&p, 0x21) == SPSEC_ERROR_KEY_ALREADY_SET,
-            "PROVISIONING_KEY (0x21): already set -> SPSEC_ERROR_KEY_ALREADY_SET");
-      spseckey_free(k_ptr);
-      p.comm_keys.spsec_keys[1] = NULL;
-    }
-  }
+  /* Case: reg=0x21 (PROVISIONING_KEY) -> cannot be written via protocol */
+  CHECK(register_validate_key_installation_sequence(&p, 0x21) == SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+        "PROVISIONING_KEY (0x21): disallowed via protocol -> SPSEC_ERROR_REGISTER_ACCESS_DENIED");
 
   /* Case: reg=0x22 (INTEGRATOR_KEY), not set -> SPSEC_SUCCESS */
   CHECK(register_validate_key_installation_sequence(&p, 0x22) == SPSEC_SUCCESS,
         "INTEGRATOR_KEY (0x22): not set -> SPSEC_SUCCESS");
 
-  /* Case: reg=0x22, already set -> SPSEC_ERROR_KEY_ALREADY_SET */
+  /* Case: reg=0x22, already set, Prov key not set -> SPSEC_ERROR_KEY_ALREADY_SET (Rule 5: write-once) */
   {
     SPsecKey *k_ptr = spseckey_new(0x22222222u, dummy_key);
     CHECK(k_ptr != NULL, "spseckey_new for INTEGRATOR_KEY already-set test");
     if (k_ptr) {
       p.comm_keys.spsec_keys[2] = k_ptr;
       CHECK(register_validate_key_installation_sequence(&p, 0x22) == SPSEC_ERROR_KEY_ALREADY_SET,
-            "INTEGRATOR_KEY (0x22): already set -> SPSEC_ERROR_KEY_ALREADY_SET");
+            "INTEGRATOR_KEY (0x22): already set, Prov key not set -> SPSEC_ERROR_KEY_ALREADY_SET");
       spseckey_free(k_ptr);
+      p.comm_keys.spsec_keys[2] = NULL;
+    }
+  }
+
+  /* Case: reg=0x22, already set, Prov key IS set -> SPSEC_SUCCESS (Rule 4: can be changed) */
+  {
+    SPsecKey *k_prov = spseckey_new(0x11111111u, dummy_key);
+    SPsecKey *k_int = spseckey_new(0x22222222u, dummy_key);
+    if (k_prov && k_int) {
+      p.comm_keys.spsec_keys[1] = k_prov;
+      p.comm_keys.spsec_keys[2] = k_int;
+      CHECK(register_validate_key_installation_sequence(&p, 0x22) == SPSEC_SUCCESS,
+            "INTEGRATOR_KEY (0x22): already set, Prov key set -> SPSEC_SUCCESS (can be changed)");
+      spseckey_free(k_prov);
+      spseckey_free(k_int);
+      p.comm_keys.spsec_keys[1] = NULL;
       p.comm_keys.spsec_keys[2] = NULL;
     }
   }
@@ -144,25 +138,21 @@ static void test_register_validate_key_installation_sequence(void) {
   CHECK(register_validate_key_installation_sequence(&p, 0x99) == SPSEC_SUCCESS,
         "Unmapped register (0x99): returns SPSEC_SUCCESS");
 
-  /* Case: reg=0x21, slot exists with key_id=SPSEC_KEY_ID_INVALID
-   * (non-NULL, so "should be erased" warning logs) -> SPSEC_SUCCESS
-   * The warning does NOT change the return value. */
+  /* Case: reg=0x22, slot exists with invalid key ID. */
   {
     SPsecKey *k_ptr = spseckey_new(SPSEC_KEY_ID_INVALID, dummy_key);
     CHECK(k_ptr != NULL, "spseckey_new with SPSEC_KEY_ID_INVALID for warning test");
     if (k_ptr) {
-      p.comm_keys.spsec_keys[1] = k_ptr;
-      CHECK(register_validate_key_installation_sequence(&p, 0x21) == SPSEC_SUCCESS,
-            "PROVISIONING_KEY with key_id=INVALID: returns SPSEC_SUCCESS (warning logged)");
+      p.comm_keys.spsec_keys[2] = k_ptr;
+      CHECK(register_validate_key_installation_sequence(&p, 0x22) == SPSEC_SUCCESS,
+            "INTEGRATOR_KEY with key_id=INVALID: returns SPSEC_SUCCESS (warning logged)");
       spseckey_free(k_ptr);
-      p.comm_keys.spsec_keys[1] = NULL;
+      p.comm_keys.spsec_keys[2] = NULL;
     }
   }
 }
 
-/* ============================================================
- * Test register_check_access
- * ============================================================ */
+/* Test register_check_access */
 
 static void test_register_check_access(void) {
   Participant p;
@@ -188,9 +178,7 @@ static void test_register_check_access(void) {
     CHECK(register_check_access(&p, reg, is_write) == expected, msg);            \
   } while (0)
 
-  /* -----------------------------------------------------------
-   * READ PATH (is_write=false)
-   * ----------------------------------------------------------- */
+  /* READ PATH (is_write=false) */
 
   /* Read-only registers (0x20-0x2F range): must be SPSEC_ERROR_REGISTER_WRITE_ONLY */
   RUN_CHECK(0x20, false, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_WRITE_ONLY,
@@ -216,9 +204,7 @@ static void test_register_check_access(void) {
   RUN_CHECK(SPSEC_REG_CODE_UPDATE_FILE, false, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_WRITE_ONLY,
             "READ CODE_UPDATE_FILE (0x92): SPSEC_ERROR_REGISTER_WRITE_ONLY");
 
-  // Zero Key read allow-list (discovery set): Zero Key sessions are
-  // unauthenticated (SPsec201 §2.4), so reads are restricted to key IDs
-  // plus initial Provisioning writes - enough to discover a node.
+  // Zero Key reads are restricted to discovery registers.
   RUN_CHECK(SPSEC_REG_STATUS, false, KEY_SELECTOR_ZERO, SPSEC_SUCCESS,
             "READ STATUS (0x50) with Zero Key: allowed");
   RUN_CHECK(SPSEC_REG_LAST_SECURITY_EVENT, false, KEY_SELECTOR_ZERO, SPSEC_SUCCESS,
@@ -252,75 +238,71 @@ static void test_register_check_access(void) {
   RUN_CHECK(SPSEC_REG_SYNC_ROLE_ACTIVATION, false, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
             "READ SYNC_ROLE_ACTIVATION (0x63) with Zero Key: DENIED");
 
-  /* -----------------------------------------------------------
-   * WRITE PATH (is_write=true) - Selector-dependent gate tests
-   * ----------------------------------------------------------- */
+  /* WRITE PATH (is_write=true) */
 
-  /* PROVISIONING_KEY (0x21): requires KEY_SELECTOR_ZERO */
-  RUN_CHECK(SPSEC_REG_PROVISIONING_KEY, true, KEY_SELECTOR_ZERO, SPSEC_SUCCESS,
-            "WRITE PROVISIONING_KEY (0x21) with KEY_SELECTOR_ZERO: SPSEC_SUCCESS");
+  /* PROVISIONING_KEY (0x21): cannot be written via session (manufacturer-only) */
+  RUN_CHECK(SPSEC_REG_PROVISIONING_KEY, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+            "WRITE PROVISIONING_KEY (0x21) with KEY_SELECTOR_ZERO: DENIED (manufacturer-only)");
   RUN_CHECK(SPSEC_REG_PROVISIONING_KEY, true, KEY_SELECTOR_PROVISIONING, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
             "WRITE PROVISIONING_KEY (0x21) with KEY_SELECTOR_PROVISIONING: DENIED");
   RUN_CHECK(SPSEC_REG_PROVISIONING_KEY, true, 0, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
             "WRITE PROVISIONING_KEY (0x21) with selector=0 (explicitly != ZERO): DENIED");
 
-  /* INTEGRATOR_KEY (0x22): requires KEY_SELECTOR_PROVISIONING */
-  RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY, true, KEY_SELECTOR_PROVISIONING, SPSEC_SUCCESS,
-            "WRITE INTEGRATOR_KEY (0x22) with KEY_SELECTOR_PROVISIONING: SPSEC_SUCCESS");
-  RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
-            "WRITE INTEGRATOR_KEY (0x22) with KEY_SELECTOR_ZERO: DENIED");
+  /* INTEGRATOR_KEY (0x22): when Prov Key NOT installed, Zero Key only (Rule 5) */
+  RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY, true, KEY_SELECTOR_ZERO, SPSEC_SUCCESS,
+            "WRITE INTEGRATOR_KEY (0x22) with KEY_SELECTOR_ZERO (no Prov key): SPSEC_SUCCESS");
+  RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY, true, KEY_SELECTOR_PROVISIONING, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+            "WRITE INTEGRATOR_KEY (0x22) with KEY_SELECTOR_PROVISIONING (no Prov key): DENIED");
+  RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY, true, KEY_SELECTOR_INTEGRATOR, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+            "WRITE INTEGRATOR_KEY (0x22) with KEY_SELECTOR_INTEGRATOR (no Prov key): DENIED");
 
-  /* SEED_KEY (0x23): requires KEY_SELECTOR_PROVISIONING or INTEGRATOR */
-  RUN_CHECK(SPSEC_REG_SEED_KEY, true, KEY_SELECTOR_PROVISIONING, SPSEC_SUCCESS,
-            "WRITE SEED_KEY (0x23) with KEY_SELECTOR_PROVISIONING: SPSEC_SUCCESS");
+  /* SEED_KEY (0x23): strictly requires KEY_SELECTOR_INTEGRATOR (Rule 2) */
   RUN_CHECK(SPSEC_REG_SEED_KEY, true, KEY_SELECTOR_INTEGRATOR, SPSEC_SUCCESS,
             "WRITE SEED_KEY (0x23) with KEY_SELECTOR_INTEGRATOR: SPSEC_SUCCESS");
+  RUN_CHECK(SPSEC_REG_SEED_KEY, true, KEY_SELECTOR_PROVISIONING, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+            "WRITE SEED_KEY (0x23) with KEY_SELECTOR_PROVISIONING: DENIED");
   RUN_CHECK(SPSEC_REG_SEED_KEY, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
             "WRITE SEED_KEY (0x23) with KEY_SELECTOR_ZERO: DENIED");
 
-  /* -----------------------------------------------------------
-   * Key-salt registers (same selector rules + offset adjustment)
-   * ----------------------------------------------------------- */
+  /* Key-salt registers */
 
-  /* PROVISIONING_KEY_SALT (0x31): same as PROVISIONING_KEY, delegates to sequence check with reg-0x10=0x21 */
-  RUN_CHECK(SPSEC_REG_PROVISIONING_KEY_SALT, true, KEY_SELECTOR_ZERO, SPSEC_SUCCESS,
-            "WRITE PROVISIONING_KEY_SALT (0x31) with KEY_SELECTOR_ZERO: SPSEC_SUCCESS");
+  /* PROVISIONING_KEY_SALT (0x31): cannot be written via session (manufacturer-only) */
+  RUN_CHECK(SPSEC_REG_PROVISIONING_KEY_SALT, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+            "WRITE PROVISIONING_KEY_SALT (0x31) with KEY_SELECTOR_ZERO: DENIED (manufacturer-only)");
   RUN_CHECK(SPSEC_REG_PROVISIONING_KEY_SALT, true, KEY_SELECTOR_PROVISIONING, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
             "WRITE PROVISIONING_KEY_SALT (0x31) with KEY_SELECTOR_PROVISIONING: DENIED");
 
-  /* INTEGRATOR_KEY_SALT (0x32): same as INTEGRATOR_KEY */
-  RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY_SALT, true, KEY_SELECTOR_PROVISIONING, SPSEC_SUCCESS,
-            "WRITE INTEGRATOR_KEY_SALT (0x32) with KEY_SELECTOR_PROVISIONING: SPSEC_SUCCESS");
-  RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY_SALT, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
-            "WRITE INTEGRATOR_KEY_SALT (0x32) with KEY_SELECTOR_ZERO: DENIED");
+  /* INTEGRATOR_KEY_SALT (0x32): same as INTEGRATOR_KEY (Zero Key only when no Prov key) */
+  RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY_SALT, true, KEY_SELECTOR_ZERO, SPSEC_SUCCESS,
+            "WRITE INTEGRATOR_KEY_SALT (0x32) with KEY_SELECTOR_ZERO (no Prov key): SPSEC_SUCCESS");
+  RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY_SALT, true, KEY_SELECTOR_PROVISIONING, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+            "WRITE INTEGRATOR_KEY_SALT (0x32) with KEY_SELECTOR_PROVISIONING (no Prov key): DENIED");
 
-  /* SEED_KEY_SALT (0x33): same as SEED_KEY */
-  RUN_CHECK(SPSEC_REG_SEED_KEY_SALT, true, KEY_SELECTOR_PROVISIONING, SPSEC_SUCCESS,
-            "WRITE SEED_KEY_SALT (0x33) with KEY_SELECTOR_PROVISIONING: SPSEC_SUCCESS");
+  /* SEED_KEY_SALT (0x33): strictly requires KEY_SELECTOR_INTEGRATOR (Rule 2) */
   RUN_CHECK(SPSEC_REG_SEED_KEY_SALT, true, KEY_SELECTOR_INTEGRATOR, SPSEC_SUCCESS,
             "WRITE SEED_KEY_SALT (0x33) with KEY_SELECTOR_INTEGRATOR: SPSEC_SUCCESS");
+  RUN_CHECK(SPSEC_REG_SEED_KEY_SALT, true, KEY_SELECTOR_PROVISIONING, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+            "WRITE SEED_KEY_SALT (0x33) with KEY_SELECTOR_PROVISIONING: DENIED");
 
-  /* -----------------------------------------------------------
-   * Key-ID registers (no installation-sequence check, selector gates only)
-   * ----------------------------------------------------------- */
+  /* Key-ID registers */
 
-  /* PROVISIONING_KEY_ID (0x41): requires KEY_SELECTOR_ZERO */
-  RUN_CHECK(SPSEC_REG_PROVISIONING_KEY_ID, true, KEY_SELECTOR_ZERO, SPSEC_SUCCESS,
-            "WRITE PROVISIONING_KEY_ID (0x41) with KEY_SELECTOR_ZERO: SPSEC_SUCCESS");
+  /* PROVISIONING_KEY_ID (0x41): cannot be written via session (manufacturer-only) */
+  RUN_CHECK(SPSEC_REG_PROVISIONING_KEY_ID, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+            "WRITE PROVISIONING_KEY_ID (0x41) with KEY_SELECTOR_ZERO: DENIED (manufacturer-only)");
 
-  /* INTEGRATOR_KEY_ID (0x42): requires KEY_SELECTOR_PROVISIONING */
-  RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY_ID, true, KEY_SELECTOR_PROVISIONING, SPSEC_SUCCESS,
-            "WRITE INTEGRATOR_KEY_ID (0x42) with KEY_SELECTOR_PROVISIONING: SPSEC_SUCCESS");
+  /* INTEGRATOR_KEY_ID (0x42): requires KEY_SELECTOR_ZERO when no Prov key */
+  RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY_ID, true, KEY_SELECTOR_ZERO, SPSEC_SUCCESS,
+            "WRITE INTEGRATOR_KEY_ID (0x42) with KEY_SELECTOR_ZERO (no Prov key): SPSEC_SUCCESS");
+  RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY_ID, true, KEY_SELECTOR_PROVISIONING, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+            "WRITE INTEGRATOR_KEY_ID (0x42) with KEY_SELECTOR_PROVISIONING (no Prov key): DENIED");
 
-  /* SEED_KEY_ID (0x43): requires KEY_SELECTOR_PROVISIONING or INTEGRATOR */
-  RUN_CHECK(SPSEC_REG_SEED_KEY_ID, true, KEY_SELECTOR_PROVISIONING, SPSEC_SUCCESS,
-            "WRITE SEED_KEY_ID (0x43) with KEY_SELECTOR_PROVISIONING: SPSEC_SUCCESS");
+  /* SEED_KEY_ID (0x43): strictly requires KEY_SELECTOR_INTEGRATOR (Rule 2) */
   RUN_CHECK(SPSEC_REG_SEED_KEY_ID, true, KEY_SELECTOR_INTEGRATOR, SPSEC_SUCCESS,
             "WRITE SEED_KEY_ID (0x43) with KEY_SELECTOR_INTEGRATOR: SPSEC_SUCCESS");
+  RUN_CHECK(SPSEC_REG_SEED_KEY_ID, true, KEY_SELECTOR_PROVISIONING, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+            "WRITE SEED_KEY_ID (0x43) with KEY_SELECTOR_PROVISIONING: DENIED");
 
-  /* -----------------------------------------------------------
-   * Read-only registers (always reject writes)
-   * ----------------------------------------------------------- */
+  /* Read-only registers */
   const uint8_t read_only_regs[] = {
     SPSEC_REG_STATUS,
     SPSEC_REG_LAST_SECURITY_EVENT,
@@ -341,29 +323,29 @@ static void test_register_check_access(void) {
     RUN_CHECK(read_only_regs[i], true, KEY_SELECTOR_PROVISIONING, SPSEC_ERROR_REGISTER_READ_ONLY, msg);
   }
 
-  /* -----------------------------------------------------------
-   * Write-only config registers (allowed from any non-ZERO selector)
-   * ----------------------------------------------------------- */
+  /* Settings & Configuration registers */
 
   /* CODE_UPDATE_FILE (0x92) */
+  RUN_CHECK(SPSEC_REG_CODE_UPDATE_FILE, true, KEY_SELECTOR_INTEGRATOR, SPSEC_SUCCESS,
+            "WRITE CODE_UPDATE_FILE (0x92) with INTEGRATOR: SPSEC_SUCCESS");
   RUN_CHECK(SPSEC_REG_CODE_UPDATE_FILE, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
             "WRITE CODE_UPDATE_FILE (0x92) with ZERO: DENIED");
-  RUN_CHECK(SPSEC_REG_CODE_UPDATE_FILE, true, KEY_SELECTOR_SESSION, SPSEC_SUCCESS,
-            "WRITE CODE_UPDATE_FILE (0x92) with SESSION: SPSEC_SUCCESS");
-  RUN_CHECK(SPSEC_REG_CODE_UPDATE_FILE, true, KEY_SELECTOR_PROVISIONING, SPSEC_SUCCESS,
-            "WRITE CODE_UPDATE_FILE (0x92) with PROVISIONING: SPSEC_SUCCESS");
+  RUN_CHECK(SPSEC_REG_CODE_UPDATE_FILE, true, KEY_SELECTOR_SESSION, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+            "WRITE CODE_UPDATE_FILE (0x92) with SESSION: DENIED");
+  RUN_CHECK(SPSEC_REG_CODE_UPDATE_FILE, true, KEY_SELECTOR_PROVISIONING, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+            "WRITE CODE_UPDATE_FILE (0x92) with PROVISIONING: DENIED");
 
   /* CAN_FD_BIT_RATE (0x7B) */
+  RUN_CHECK(SPSEC_REG_CAN_FD_BIT_RATE, true, KEY_SELECTOR_INTEGRATOR, SPSEC_SUCCESS,
+            "WRITE CAN_FD_BIT_RATE (0x7B) with INTEGRATOR: SPSEC_SUCCESS");
   RUN_CHECK(SPSEC_REG_CAN_FD_BIT_RATE, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
             "WRITE CAN_FD_BIT_RATE (0x7B) with ZERO: DENIED");
-  RUN_CHECK(SPSEC_REG_CAN_FD_BIT_RATE, true, KEY_SELECTOR_SESSION, SPSEC_SUCCESS,
-            "WRITE CAN_FD_BIT_RATE (0x7B) with SESSION: SPSEC_SUCCESS");
-  RUN_CHECK(SPSEC_REG_CAN_FD_BIT_RATE, true, KEY_SELECTOR_PROVISIONING, SPSEC_SUCCESS,
-            "WRITE CAN_FD_BIT_RATE (0x7B) with PROVISIONING: SPSEC_SUCCESS");
+  RUN_CHECK(SPSEC_REG_CAN_FD_BIT_RATE, true, KEY_SELECTOR_SESSION, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+            "WRITE CAN_FD_BIT_RATE (0x7B) with SESSION: DENIED");
+  RUN_CHECK(SPSEC_REG_CAN_FD_BIT_RATE, true, KEY_SELECTOR_PROVISIONING, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+            "WRITE CAN_FD_BIT_RATE (0x7B) with PROVISIONING: DENIED");
 
-  /* -----------------------------------------------------------
-   * MANUFACTURER_RESET (0x7F): requires INTEGRATOR
-   * ----------------------------------------------------------- */
+  /* MANUFACTURER_RESET (0x7F) */
   RUN_CHECK(SPSEC_REG_MANUFACTURER_RESET, true, KEY_SELECTOR_INTEGRATOR, SPSEC_SUCCESS,
             "WRITE MANUFACTURER_RESET (0x7F) with INTEGRATOR: SPSEC_SUCCESS");
   RUN_CHECK(SPSEC_REG_MANUFACTURER_RESET, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
@@ -371,9 +353,7 @@ static void test_register_check_access(void) {
   RUN_CHECK(SPSEC_REG_MANUFACTURER_RESET, true, KEY_SELECTOR_PROVISIONING, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
             "WRITE MANUFACTURER_RESET (0x7F) with PROVISIONING: DENIED");
 
-  /* -----------------------------------------------------------
-   * Configuration registers (rejected only from KEY_SELECTOR_ZERO)
-   * ----------------------------------------------------------- */
+  /* Configuration registers */
   const uint8_t config_regs[] = {
     SPSEC_REG_PARTICIPANT_ID,
     SPSEC_REG_SECURE_HEARTBEAT_TIMING,
@@ -384,28 +364,25 @@ static void test_register_check_access(void) {
     char msg[128];
     snprintf(msg, sizeof(msg), "WRITE config 0x%02x with ZERO: DENIED", config_regs[i]);
     RUN_CHECK(config_regs[i], true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED, msg);
-    snprintf(msg, sizeof(msg), "WRITE config 0x%02x with PROVISIONING: SPSEC_SUCCESS", config_regs[i]);
-    RUN_CHECK(config_regs[i], true, KEY_SELECTOR_PROVISIONING, SPSEC_SUCCESS, msg);
-    snprintf(msg, sizeof(msg), "WRITE config 0x%02x with SESSION: SPSEC_SUCCESS", config_regs[i]);
-    RUN_CHECK(config_regs[i], true, KEY_SELECTOR_SESSION, SPSEC_SUCCESS, msg);
+    snprintf(msg, sizeof(msg), "WRITE config 0x%02x with PROVISIONING: DENIED", config_regs[i]);
+    RUN_CHECK(config_regs[i], true, KEY_SELECTOR_PROVISIONING, SPSEC_ERROR_REGISTER_ACCESS_DENIED, msg);
+    snprintf(msg, sizeof(msg), "WRITE config 0x%02x with SESSION: DENIED", config_regs[i]);
+    RUN_CHECK(config_regs[i], true, KEY_SELECTOR_SESSION, SPSEC_ERROR_REGISTER_ACCESS_DENIED, msg);
+    snprintf(msg, sizeof(msg), "WRITE config 0x%02x with INTEGRATOR: SPSEC_SUCCESS", config_regs[i]);
+    RUN_CHECK(config_regs[i], true, KEY_SELECTOR_INTEGRATOR, SPSEC_SUCCESS, msg);
   }
 
-  /* -----------------------------------------------------------
-   * NULL auth_tag_data_ptr (default selector = KEY_SELECTOR_ZERO)
-   * ----------------------------------------------------------- */
-  /* PROVISIONING_KEY write -> delegates to sequence -> SPSEC_SUCCESS
-   * (because NULL is treated as KEY_SELECTOR_ZERO) */
-  RUN_CHECK(SPSEC_REG_PROVISIONING_KEY, true, 0xFF, SPSEC_SUCCESS,
-            "WRITE PROVISIONING_KEY with NULL auth_tag_data_ptr: SPSEC_SUCCESS (treated as ZERO)");
+  /* NULL auth_tag_data_ptr */
+  /* PROVISIONING_KEY write -> cannot be written -> DENIED */
+  RUN_CHECK(SPSEC_REG_PROVISIONING_KEY, true, 0xFF, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+            "WRITE PROVISIONING_KEY with NULL auth_tag_data_ptr: DENIED (manufacturer-only)");
 
   /* PARTICIPANT_ID write -> SPSEC_ERROR_REGISTER_ACCESS_DENIED
    * (because NULL is treated as KEY_SELECTOR_ZERO) */
   RUN_CHECK(SPSEC_REG_PARTICIPANT_ID, true, 0xFF, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
             "WRITE PARTICIPANT_ID with NULL auth_tag_data_ptr: DENIED (treated as ZERO)");
 
-  /* -----------------------------------------------------------
-   * Invalid register (not in any case)
-   * ----------------------------------------------------------- */
+  /* Invalid register */
   RUN_CHECK(0xEE, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_INVALID,
             "WRITE invalid register 0xEE: SPSEC_ERROR_REGISTER_INVALID");
   RUN_CHECK(0xEE, false, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
@@ -413,31 +390,88 @@ static void test_register_check_access(void) {
   RUN_CHECK(0xEE, false, KEY_SELECTOR_INTEGRATOR, SPSEC_SUCCESS,
             "READ 0xEE with Integrator Key: allowed (manufacturer-specific range)");
 
-  // Provisioning Key ID (41h) is write-once like the key itself - without
-  // this, an unauthenticated Zero Key session could rewrite the ID of an
-  // already-provisioned device (register_is_key_set() keys off it).
+  // Provisioning Key ID is write-once to prevent unauthorized overwrite.
   {
-    /* Key ID still erased (FFh) - mid-provisioning, the write must pass. */
+    /* Provisioning Key cannot be written even if ID is erased (manufacturer-only) */
     SPsecKey *k_ptr = spseckey_new((uint32_t)SPSEC_KEY_ID_RESERVED, dummy_key);
-    CHECK(k_ptr != NULL, "spseckey_new with erased key ID for write-once test");
+    CHECK(k_ptr != NULL, "spseckey_new with erased key ID for write test");
     if (k_ptr) {
       p.comm_keys.spsec_keys[1] = k_ptr;
-      RUN_CHECK(SPSEC_REG_PROVISIONING_KEY_ID, true, KEY_SELECTOR_ZERO, SPSEC_SUCCESS,
-                "WRITE PROVISIONING_KEY_ID (0x41), key ID still erased: allowed");
+      RUN_CHECK(SPSEC_REG_PROVISIONING_KEY_ID, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+                "WRITE PROVISIONING_KEY_ID (0x41): DENIED (manufacturer-only)");
       spseckey_free(k_ptr);
       p.comm_keys.spsec_keys[1] = NULL;
     }
   }
   {
-    /* Provisioning key installed - a rewrite must now be refused. */
+    /* Provisioning key installed */
     SPsecKey *k_ptr = spseckey_new(0x11111111u, dummy_key);
     CHECK(k_ptr != NULL, "spseckey_new with valid key ID for write-once test");
     if (k_ptr) {
       p.comm_keys.spsec_keys[1] = k_ptr;
-      RUN_CHECK(SPSEC_REG_PROVISIONING_KEY_ID, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_KEY_ALREADY_SET,
-                "WRITE PROVISIONING_KEY_ID (0x41) once provisioned: KEY_ALREADY_SET");
-      RUN_CHECK(SPSEC_REG_PROVISIONING_KEY, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_KEY_ALREADY_SET,
-                "WRITE PROVISIONING_KEY (0x21) once provisioned: KEY_ALREADY_SET");
+
+      /* Rule 3: Zero key session cannot write anything, only read */
+      RUN_CHECK(SPSEC_REG_PROVISIONING_KEY_ID, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+                "WRITE PROVISIONING_KEY_ID (0x41) once provisioned: DENIED (Rule 3: Zero key read-only)");
+      RUN_CHECK(SPSEC_REG_PROVISIONING_KEY, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+                "WRITE PROVISIONING_KEY (0x21) once provisioned: DENIED (Rule 3: Zero key read-only)");
+      RUN_CHECK(SPSEC_REG_PROVISIONING_KEY_SALT, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+                "WRITE PROVISIONING_KEY_SALT (0x31) once provisioned: DENIED (Rule 3: Zero key read-only)");
+      RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+                "WRITE INTEGRATOR_KEY (0x22) once provisioned: DENIED (Rule 3: Zero key read-only)");
+      RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY_SALT, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+                "WRITE INTEGRATOR_KEY_SALT (0x32) once provisioned: DENIED (Rule 3: Zero key read-only)");
+      RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY_ID, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+                "WRITE INTEGRATOR_KEY_ID (0x42) once provisioned: DENIED (Rule 3: Zero key read-only)");
+      RUN_CHECK(SPSEC_REG_SEED_KEY, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+                "WRITE SEED_KEY (0x23) once provisioned: DENIED (Rule 3: Zero key read-only)");
+      RUN_CHECK(SPSEC_REG_PARTICIPANT_ID, true, KEY_SELECTOR_ZERO, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+                "WRITE PARTICIPANT_ID (0x60) once provisioned: DENIED (Rule 3: Zero key read-only)");
+
+      /* Zero key reads still allowed for identity/status */
+      RUN_CHECK(SPSEC_REG_STATUS, false, KEY_SELECTOR_ZERO, SPSEC_SUCCESS,
+                "READ STATUS with Zero Key once provisioned: allowed");
+      RUN_CHECK(SPSEC_REG_PROVISIONING_KEY_ID, false, KEY_SELECTOR_ZERO, SPSEC_SUCCESS,
+                "READ PROVISIONING_KEY_ID with Zero Key once provisioned: allowed");
+
+      /* Rule 4: Integrator key can be changed via Provisioning key session and Integrator key session */
+      RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY, true, KEY_SELECTOR_PROVISIONING, SPSEC_SUCCESS,
+                "WRITE INTEGRATOR_KEY with Provisioning Key session: SPSEC_SUCCESS");
+      RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY, true, KEY_SELECTOR_INTEGRATOR, SPSEC_SUCCESS,
+                "WRITE INTEGRATOR_KEY with Integrator Key session: SPSEC_SUCCESS");
+      RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY_SALT, true, KEY_SELECTOR_PROVISIONING, SPSEC_SUCCESS,
+                "WRITE INTEGRATOR_KEY_SALT with Provisioning Key session: SPSEC_SUCCESS");
+      RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY_SALT, true, KEY_SELECTOR_INTEGRATOR, SPSEC_SUCCESS,
+                "WRITE INTEGRATOR_KEY_SALT with Integrator Key session: SPSEC_SUCCESS");
+      RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY_ID, true, KEY_SELECTOR_PROVISIONING, SPSEC_SUCCESS,
+                "WRITE INTEGRATOR_KEY_ID with Provisioning Key session: SPSEC_SUCCESS");
+      RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY_ID, true, KEY_SELECTOR_INTEGRATOR, SPSEC_SUCCESS,
+                "WRITE INTEGRATOR_KEY_ID with Integrator Key session: SPSEC_SUCCESS");
+
+      /* Integrator Key can be changed even when already set (Rule 4) */
+      SPsecKey *k_int = spseckey_new(0x22222222u, dummy_key);
+      if (k_int) {
+        p.comm_keys.spsec_keys[2] = k_int;
+        RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY, true, KEY_SELECTOR_PROVISIONING, SPSEC_SUCCESS,
+                  "CHANGE INTEGRATOR_KEY with Provisioning Key session: SPSEC_SUCCESS");
+        RUN_CHECK(SPSEC_REG_INTEGRATOR_KEY, true, KEY_SELECTOR_INTEGRATOR, SPSEC_SUCCESS,
+                  "CHANGE INTEGRATOR_KEY with Integrator Key session: SPSEC_SUCCESS");
+        spseckey_free(k_int);
+        p.comm_keys.spsec_keys[2] = NULL;
+      }
+
+      /* Rule 2: Seed Key can ONLY be written by Integrator Key session */
+      RUN_CHECK(SPSEC_REG_SEED_KEY, true, KEY_SELECTOR_PROVISIONING, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+                "WRITE SEED_KEY with Provisioning Key session: DENIED (Rule 2)");
+      RUN_CHECK(SPSEC_REG_SEED_KEY, true, KEY_SELECTOR_INTEGRATOR, SPSEC_SUCCESS,
+                "WRITE SEED_KEY with Integrator Key session: SPSEC_SUCCESS");
+
+      /* Rule 2: Config registers can ONLY be written by Integrator Key session */
+      RUN_CHECK(SPSEC_REG_PARTICIPANT_ID, true, KEY_SELECTOR_PROVISIONING, SPSEC_ERROR_REGISTER_ACCESS_DENIED,
+                "WRITE PARTICIPANT_ID with Provisioning Key session: DENIED (Rule 2)");
+      RUN_CHECK(SPSEC_REG_PARTICIPANT_ID, true, KEY_SELECTOR_INTEGRATOR, SPSEC_SUCCESS,
+                "WRITE PARTICIPANT_ID with Integrator Key session: SPSEC_SUCCESS");
+
       spseckey_free(k_ptr);
       p.comm_keys.spsec_keys[1] = NULL;
     }
@@ -449,9 +483,7 @@ static void test_register_check_access(void) {
   p.session.auth_tag_data_ptr = NULL;
 }
 
-/* ============================================================
- * Main
- * ============================================================ */
+/* Main */
 
 int main(void) {
   configure_logging("CRITICAL");

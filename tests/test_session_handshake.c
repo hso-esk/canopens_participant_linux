@@ -102,9 +102,7 @@ static void teardown_test_participant(Participant *p_ptr) {
   timer_destroy(&p_ptr->timer);
 }
 
-/* ------------------------------------------------------------
- * 1. ClientHello Tests
- * ------------------------------------------------------------ */
+/* 1. ClientHello Tests */
 
 static void test_client_hello(void) {
   printf("Testing participant_process_client_hello...\n");
@@ -174,9 +172,7 @@ static void test_client_hello(void) {
   teardown_test_participant(&p);
 }
 
-/* ------------------------------------------------------------
- * 2. ClientFinished Tests
- * ------------------------------------------------------------ */
+/* 2. ClientFinished Tests */
 
 static void test_client_finished(void) {
   printf("Testing participant_process_client_finished...\n");
@@ -234,6 +230,35 @@ static void test_client_finished(void) {
     spsecclientfinished_free(f_ptr);
   }
 
+  /* Case 4b: Key selector is bound in ClientFinished associated data. */
+  {
+    uint32_t cnt_before = p.session.cnt;
+    uint32_t test_address = 0x1E010078;
+    uint8_t assoc_data[40];
+    memcpy(assoc_data, p.session.auth_tag_data_ptr->key_selector, KEY_SELECTOR_SIZE);
+    assoc_data[0] = KEY_SELECTOR_INTEGRATOR; /* session was opened with PROVISIONING */
+    memcpy(assoc_data + 4, p.session.auth_tag_data_ptr->cli_random, RANDOM_SIZE);
+    memcpy(assoc_data + 20, p.session.auth_tag_data_ptr->srv_random, RANDOM_SIZE);
+    u32_to_bytes_le(test_address, assoc_data + 36);
+
+    uint8_t *nonce_ptr = NULL;
+    generate_nonce_from_session_cnt(cnt_before + 1, &nonce_ptr,
+                                    p.session.auth_tag_data_ptr->spsec_salt_ptr);
+    uint8_t wrong_ks_tag[AUTH_TAG_SIZE];
+    setup_crypto_context_and_calculate_tag(&p.crypto_handler, p.session.key, nonce_ptr,
+                                           REQUIRED_NONCE_LEN, assoc_data, sizeof(assoc_data),
+                                           wrong_ks_tag, AUTH_TAG_SIZE);
+    free(nonce_ptr);
+
+    SPsecClientFinishedMessage *f_ptr = spsecclientfinished_new(TEST_PID, cnt_before + 1);
+    f_ptr->address = test_address;
+    memcpy(f_ptr->auth_tag, wrong_ks_tag, AUTH_TAG_SIZE);
+    CHECK(participant_process_client_finished(&p, f_ptr) == SPSEC_ERROR_CRYPTO_AUTH,
+          "ClientFinished tagged with a different key selector is rejected");
+    CHECK(p.session.cnt == cnt_before, "counter does not advance on key selector mismatch");
+    spsecclientfinished_free(f_ptr);
+  }
+
   /* Case 5: Valid auth tag -> accepted, counter advanced, cli_auth_tag saved */
   {
     uint32_t initial_cnt = p.session.cnt;
@@ -273,9 +298,7 @@ static void test_client_finished(void) {
   teardown_test_participant(&p);
 }
 
-/* ------------------------------------------------------------
- * 3. SessionTerminate Tests
- * ------------------------------------------------------------ */
+/* 3. SessionTerminate Tests */
 
 static void test_session_terminate(void) {
   printf("Testing participant_process_session_terminate...\n");

@@ -114,14 +114,15 @@ int main(void) {
   }
 
   // ============================================================
-  // Case 2: Key round-trip
+  // Case 2: Key round-trip (Provisioning key saved by manufacturer and reloaded)
   // ============================================================
   printf("Case 2: Key round-trip...\n");
   {
     memset(key_buf_a, 0xAB, KEY_LEN);
-    spsec_ret_t ret = apply_key(&p, 1, key_buf_a);
-    CHECK(ret == SPSEC_SUCCESS, "Case 2: apply_key returns SPSEC_SUCCESS");
-    CHECK(p.comm_keys.spsec_keys[1] != NULL, "Case 2: slot 1 is non-NULL after apply_key");
+    p.comm_keys.spsec_keys[1] = spseckey_new(1, key_buf_a);
+    CHECK(p.comm_keys.spsec_keys[1] != NULL, "Case 2: key allocated");
+    spsec_ret_t sret = participant_storage_save_key(&p, 1);
+    CHECK(sret == SPSEC_SUCCESS, "Case 2: participant_storage_save_key returns SPSEC_SUCCESS");
     CHECK(memcmp(spseckey_get_key(p.comm_keys.spsec_keys[1]), key_buf_a, KEY_LEN) == 0,
           "Case 2: key material matches original buffer");
 
@@ -130,7 +131,7 @@ int main(void) {
     p.comm_keys.spsec_keys[1] = NULL;
 
     // Load from storage
-    ret = participant_storage_load_all(&p);
+    signed char ret = participant_storage_load_all(&p);
     CHECK(ret == 0, "Case 2: participant_storage_load_all returns 0 after reload");
     CHECK(p.comm_keys.spsec_keys[1] != NULL, "Case 2: slot 1 reloaded from storage");
     CHECK(memcmp(spseckey_get_key(p.comm_keys.spsec_keys[1]), key_buf_a, KEY_LEN) == 0,

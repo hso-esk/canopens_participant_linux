@@ -64,9 +64,7 @@ int main(void) {
   CHECK(spsec_tick_ns_for_data_bitrate(0x50) == 100000,
         "unrecognized enum (reserved, not manufacturer-specific) -> "
         "spec-default 100000 ns");
-  // Manufacturer-specific rates are derived from can_bitrate_data_to_bps(),
-  // not a fixed fallback: can_bitrate_data_to_bps(0xA0) = 160,000,000 bps,
-  // tick_ns = 1e11 / 1.6e8 = 625.
+  // Derive tick duration for manufacturer-specific bitrates from bps.
   CHECK(spsec_tick_ns_for_data_bitrate(0xA0) == 625,
         "manufacturer-specific rate is scaled via Eq. eq:tick, not a fixed "
         "100us fallback");
@@ -84,10 +82,14 @@ int main(void) {
   }
   CHECK(monotonic, "tick_ns strictly decreases as data-phase rate increases");
 
-  // spsec_max_accept_window_ticks(): the -w clamp bound
+  // Maximum acceptance window clamp bound for timer tick resolution.
   printf("Testing spsec_max_accept_window_ticks()...\n");
+  // 2048 reference ticks * 0.1ms = 204.8ms, matching the paper's +/-204.8ms
+  // reconstruction bound at 1 Mbps (SS622) exactly.
   CHECK(spsec_max_accept_window_ticks(100000) == 2048,
         "1 Mbps: 2048*100000/100000 = 2048 reference ticks (204.8 ms)");
+  // 256 reference ticks * 0.1ms = 25.6ms, matching the paper's +/-25.6ms
+  // bound at 8 Mbps exactly.
   CHECK(spsec_max_accept_window_ticks(12500) == 256,
         "8 Mbps: 2048*12500/100000 = 256 reference ticks (25.6 ms)");
   CHECK(spsec_max_accept_window_ticks(0) == 0,

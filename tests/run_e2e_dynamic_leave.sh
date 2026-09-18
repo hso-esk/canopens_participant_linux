@@ -11,11 +11,7 @@
 # included within the root folder of this work.
 #
 
-# Dynamic Node Removal Test
-#
-# Verifies that removing a node from a group rotates keys on survivor nodes
-# and successfully isolates/drops traffic from the revoked node.
-#
+# Dynamic node removal test: verifies key rotation on remaining nodes.
 # Usage: tests/run_e2e_dynamic_leave.sh [--keep] [--log-level LEVEL]
 set -uo pipefail
 

@@ -11,9 +11,7 @@
 # included within the root folder of this work.
 #
 
-# Matrix runner for run_e2e.sh across salt lengths (8, 12), algorithms (AES-GCM, ASCON-128),
-# and crypto backends (wolfSSL, mbedTLS).
-#
+# Matrix runner across salt lengths, algorithms, and crypto backends.
 # Usage: tests/run_e2e_matrix.sh
 set -uo pipefail
 

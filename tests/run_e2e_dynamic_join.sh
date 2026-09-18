@@ -11,12 +11,7 @@
 # included within the root folder of this work.
 #
 
-# Dynamic Node Addition Under Active Load
-#
-# Verifies that an unprovisioned participant can be dynamically onboarded
-# and achieve time synchronization while active CANopen traffic continues
-# streaming without packet loss.
-#
+# Dynamic node onboarding under active traffic without packet loss.
 # Usage: tests/run_e2e_dynamic_join.sh [--keep] [--log-level LEVEL]
 set -uo pipefail
 

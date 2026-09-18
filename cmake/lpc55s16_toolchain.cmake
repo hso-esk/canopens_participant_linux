@@ -21,9 +21,7 @@
 set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_SYSTEM_PROCESSOR arm)
 
-# Building a static library for a freestanding target: skip the linker
-# check CMake normally does while probing the compiler, since there is
-# no libc/startup code available yet.
+# Skip compiler probe linker check when building freestanding static library.
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 
 find_program(ARM_NONE_EABI_GCC arm-none-eabi-gcc)

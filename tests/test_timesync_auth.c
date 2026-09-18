@@ -162,6 +162,35 @@ static void test_client_timesync_auth_bad_tag(void) {
   teardown_participant(&client);
 }
 
+/* Verify authentic response for previous request is rejected for new request. */
+static void test_client_timesync_stale_response_rejected(void) {
+  printf("Testing client timesync rejects response bound to another random...\n");
+  Participant client;
+  init_client_participant(&client);
+
+  uint8_t old_random[RANDOM_SIZE];
+  memset(old_random, 0x55, sizeof(old_random));
+  uint8_t new_random[RANDOM_SIZE];
+  memcpy(new_random, old_random, sizeof(new_random));
+  new_random[RANDOM_SIZE - 1] ^= 0x01;
+
+  uint8_t srv_ts[TIMESTAMP_SIZE] = {0x10, 0x20, 0x30, 0x40, 0x00, 0x00, 0x00, 0x00};
+  uint8_t srv_csalt[4] = {0xAA, 0xBB, 0xCC, 0xDD};
+  uint8_t old_tag[AUTH_TAG_SIZE];
+  compute_expected_mtls_tag(&client, old_random, srv_ts, srv_csalt,
+                            client.participant_id, old_tag);
+
+  SPsecTimeSyncResponse *resp_ptr =
+      timesyncresponse_new(srv_ts, srv_csalt, old_tag, AUTH_TAG_SIZE,
+                           client.participant_id);
+  signed char ret = participant_process_mtls_auth_time(&client, resp_ptr, new_random);
+  CHECK(ret < 0, "stale response replayed for a new random is rejected");
+  CHECK(client.timesync.last_successful == 0, "timer not adopted from stale response");
+
+  timesyncresponse_free(resp_ptr);
+  teardown_participant(&client);
+}
+
 static void test_client_timesync_wrong_pid(void) {
   printf("Testing client timesync ignores response for other PID...\n");
   Participant client;
@@ -203,6 +232,7 @@ static void test_tsa_csalt_guards(void) {
 int main(void) {
   test_client_timesync_auth_success();
   test_client_timesync_auth_bad_tag();
+  test_client_timesync_stale_response_rejected();
   test_client_timesync_wrong_pid();
   test_tsa_csalt_guards();
 

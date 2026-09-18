@@ -11,20 +11,7 @@
 # included within the root folder of this work.
 #
 
-# End-to-end test for multi-participant GUI operations:
-#   1. Spawns live unprovisioned SPsec participants over SocketCAN:
-#        - PID 120: Time Sync Authority (-t) on vcan0 (secure) and vcan1 (insecure)
-#        - PID 121: Participant client on vcan0 (secure) and vcan2 (insecure)
-#   2. Automates discovery via the desktop GUI (MainWindow / DevicePanel).
-#   3. Drives sequential key provisioning (Zero -> Prov -> Int -> Seed) via GUI.
-#   4. Verifies Time Synchronization between nodes (transition to SECURE state).
-#   5. Verifies Bidirectional CANopen Data Plane:
-#        - Forward: vcan1 (Node 120) -> vcan0 -> vcan2 (Node 121)
-#        - Reverse: vcan2 (Node 121) -> vcan0 -> vcan1 (Node 120)
-#   6. Disables participant 120 via GUI Factory Reset (0x1D04E5E1 to reg 0x7F).
-#   7. Verifies post-disable security check: traffic on vcan1 is dropped (0 frames delivered).
-#   8. Disables/stops participant processes via graceful shutdown signal.
-#
+# End-to-end test for multi-participant GUI operations and provisioning.
 # Usage: tests/run_e2e_gui.sh [--keep] [--log-level LEVEL] [--visible] [--keys FILE]
 set -uo pipefail
 
@@ -109,6 +96,16 @@ fi
 python3 -c "import can, Crypto, tkinter" 2>/dev/null || {
   echo "[gui_e2e] Python configurator or tkinter dependencies missing" >&2; exit 1; }
 
+XVFB_CMD=""
+if [ -z "${DISPLAY:-}" ]; then
+  if command -v xvfb-run &>/dev/null; then
+    XVFB_CMD="xvfb-run -a "
+  else
+    echo "[gui_e2e] SKIP: No display available (DISPLAY unset and xvfb-run not installed)"
+    exit 0
+  fi
+fi
+
 stale_participants() {
   local target p
   target="$(readlink -f "$PARTICIPANT_BIN" 2>/dev/null)" || return 0
@@ -154,7 +151,7 @@ SPSEC_LIVE_RUNDIR="$RUNDIR" \
 SPSEC_LIVE_INSEC_120="vcan1" \
 SPSEC_LIVE_INSEC_121="vcan2" \
 GUI_VISIBLE="$GUI_VISIBLE" \
-python3 -m unittest discover -s "$CONFIGURATOR_TESTS" -p "test_gui_e2e_live.py" -v \
+$XVFB_CMD python3 -m unittest discover -s "$CONFIGURATOR_TESTS" -p "test_gui_e2e_live.py" -v \
   > "$GUI_OUTPUT" 2>&1
 GUI_RC=$?
 

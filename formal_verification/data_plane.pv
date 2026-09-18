@@ -1,0 +1,72 @@
+(*
+ * Copyright (c) 2026
+ *
+ * Hochschule Offenburg, University of Applied Sciences
+ * Institute for reliable Embedded Systems
+ * and Communications Electronic (ivESK)
+ *
+ * This file is licensed as described in the "LICENSE" file
+ * included within the root folder of this work.
+ *)
+
+(* ProVerif model: SPsec data plane. *)
+
+free c: channel.
+
+type key.
+
+fun hkdf(key, bitstring): key.
+fun aead(key, bitstring, bitstring, bitstring): bitstring.
+reduc forall k: key, n: bitstring, m: bitstring, a: bitstring;
+  adec(aead(k, n, m, a), k, n, a) = m.
+
+const len: bitstring.
+const e_compromised, e_secure: bitstring.
+
+free secret_payload: bitstring [private].
+
+event Sent(bitstring, bitstring, bitstring, bitstring).
+event Accepted(bitstring, bitstring, bitstring, bitstring).
+
+(* Reachability / sanity *)
+query c_id, ts, m, e: bitstring; event(Accepted(c_id, ts, m, e)).
+
+(* Payload confidentiality in uncompromised epoch e_secure, even if e_compromised key leaked *)
+query attacker(secret_payload).
+
+(* Group authenticity: any accepted frame in e_secure was sent by a group member *)
+query c_id, ts, m: bitstring;
+  event(Accepted(c_id, ts, m, e_secure)) ==> event(Sent(c_id, ts, m, e_secure)).
+
+let Sender(seed: key, csalt: bitstring, ksalt: bitstring) =
+  in(c, (c_id: bitstring, e: bitstring));
+  new ts: bitstring;
+  new m: bitstring;
+  let ck = hkdf(seed, (e, csalt)) in
+  event Sent(c_id, ts, m, e);
+  out(c, (c_id, ts, e, aead(ck, (ts, c_id, ksalt), m, (c_id, len))));
+  if e = e_secure then
+  (
+    new ts2: bitstring;
+    event Sent(c_id, ts2, secret_payload, e_secure);
+    out(c, (c_id, ts2, e_secure, aead(ck, (ts2, c_id, ksalt), secret_payload, (c_id, len))))
+  ).
+
+let Receiver(seed: key, csalt: bitstring, ksalt: bitstring) =
+  in(c, (c_id: bitstring, ts: bitstring, e: bitstring, cipher: bitstring));
+  let ck = hkdf(seed, (e, csalt)) in
+  let m = adec(cipher, ck, (ts, c_id, ksalt), (c_id, len)) in
+  event Accepted(c_id, ts, m, e).
+
+process
+  new seed: key;
+  new csalt: bitstring;
+  new ksalt: bitstring;
+  out(c, csalt);
+  (* Reveal key of compromised epoch to the attacker to model key rollover boundary *)
+  let ck_comp = hkdf(seed, (e_compromised, csalt)) in
+  out(c, (ck_comp, ksalt));
+  (
+    !Sender(seed, csalt, ksalt) |
+    !Receiver(seed, csalt, ksalt)
+  )

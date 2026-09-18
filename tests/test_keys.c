@@ -9,10 +9,7 @@
  * included within the root folder of this work.
  */
 
-// Regression tests for key lifecycle (new/free/invalidate for keys and
-// salts, communication_keys_init/destroy). Includes a zeroization pin for
-// commit 812381c (key/salt free must wipe the material).
-
+// Regression tests for key and salt lifecycle management.
 #include "keys.h"
 #include "spsec_common.h"
 

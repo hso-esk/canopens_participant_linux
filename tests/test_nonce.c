@@ -10,9 +10,7 @@
  */
 
 // Regression tests for session-counter nonce construction + a cross-backend
-// AEAD known-answer test. Pins down three real interop bugs from one
-// debugging session: nonce layout diverging under non-default SALT_LEN,
-// a session-counter-wrap nonce-reuse gap, and a hardcoded-backend bug.
+// Regression tests for session-counter nonce construction.
 
 #include "crypto.h"
 #include "keys.h"
@@ -114,9 +112,7 @@ static void test_nonce_wrap_guard(void) {
   spsecsalt_free(salt_ptr);
 }
 
-// Cross-backend known-answer test: a fixed key/nonce/plaintext/AAD must
-// produce byte-identical ciphertext+tag on wolfSSL and mbedTLS alike -
-// vectors were captured from both backends and hardcoded here.
+// Cross-backend known-answer test for ciphertext and tag generation.
 static void test_cross_backend_kat(CryptoHandler *h_ptr) {
   printf("  cross-backend AEAD known-answer test\n");
 

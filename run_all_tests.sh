@@ -1,40 +1,18 @@
 #!/usr/bin/env bash
+
 #
-# Comprehensive Test Suite Runner for SPsec CANopen Participant & Configurator
+# Copyright (c) 2026
 #
-# Runs all available test suites:
-#   1. CTest Unit Tests (wolfSSL backend)
-#   2. CTest Unit Tests (mbedTLS backend)
-#   3. CTest Unit Tests (12-byte salt configuration)
-#   4. Wireshark SPsec Dissector field extraction (tshark)
-#   5. Python Configurator Unit & Integration Tests (pytest)
-#   6. Cross-Mode Protocol Isolation (AEAD vs. Auth-Only)
-#   7. E2E Rekey & Seed Key Lifecycle
-#   8. E2E Factory Reset & Recovery
-#   9. E2E Code Update (Segmented OTA transfer)
-#  10. E2E Dynamic Join (Onboarding under traffic)
-#  11. E2E Dynamic Leave (Revocation and key rotation)
-#  12. E2E Provision Discovered Devices
-#  13. E2E Sync-Role Restart Recovery
-#  14. E2E Fault Injection & Negative Security Tests
-#  15. E2E Power-Cut Mid-Write Persistence Simulation
-#  16. E2E Multi-Algorithm Stability (AES-GCM, ChaCha20, ASCON-128)
-#  17. E2E Algorithm & Backend Full Matrix (run_e2e_matrix.sh)
-#  18. 10-Node Cluster Communication Stability
-#  19. 10-Node Dynamic Join Under Active Load
-#  20. 10-Node TSA Crash & Re-convergence
-#  21. 20-Node High-Density Mesh Scaling
-#  22. GUI Automated Lifecycle Test
-#  23. Embedded Baremetal Cross-Compile Smoke Test (if arm-none-eabi-gcc is present)
+# Hochschule Offenburg, University of Applied Sciences
+# Institute for reliable Embedded Systems
+# and Communications Electronic (ivESK)
 #
-# Usage:
-#   ./run_all_tests.sh [options]
+# This file is licensed as described in the "LICENSE" file
+# included within the root folder of this work.
 #
-# Options:
-#   --build       Reconfigure and rebuild all binary variants before testing
-#   --quick       Run quicker versions of long tests (fewer iterations/shorter durations)
-#   --unit-only   Run only CTest unit tests and Python configurator pytest
-#   -h, --help    Show this help message
+
+# Test suite runner for SPsec CANopen Participant and Configurator.
+# Usage: ./run_all_tests.sh [--build] [--quick] [--unit-only] [-h]
 
 set -uo pipefail
 
@@ -155,11 +133,11 @@ BUILD_SALT12="$REPO_ROOT/build_salt12"
 ensure_build() {
   local dir="$1"
   local cmake_args="$2"
-  if [[ $AUTO_BUILD -eq 1 || ! -f "$dir/spsec_participant" ]]; then
+  if [[ $AUTO_BUILD -eq 1 || ! -f "$dir/Makefile" && ! -f "$dir/build.ninja" ]]; then
     echo -e "${BLUE}Configuring and building $dir...${RESET}"
     cmake -B "$dir" -S "$REPO_ROOT" $cmake_args || return 1
-    cmake --build "$dir" -j"$(nproc 2>/dev/null || echo 2)" || return 1
   fi
+  cmake --build "$dir" -j"$(nproc 2>/dev/null || echo 2)" || return 1
   return 0
 }
 
@@ -225,8 +203,12 @@ fi
 echo
 echo -e "${BOLD}--- Phase 2: Python Configurator Test Suite (pytest) ---${RESET}"
 if command -v pytest &>/dev/null; then
+  PYTEST_CMD="env PYTHONPATH='$REPO_ROOT/canopens_configurator_python/src' pytest '$REPO_ROOT/canopens_configurator_python/tests'"
+  if [ -z "${DISPLAY:-}" ] && command -v xvfb-run &>/dev/null; then
+    PYTEST_CMD="xvfb-run -a $PYTEST_CMD"
+  fi
   run_test_step "Python Configurator (pytest unit + functional)" \
-    "PYTHONPATH='$REPO_ROOT/canopens_configurator_python/src' pytest '$REPO_ROOT/canopens_configurator_python/tests'"
+    "$PYTEST_CMD"
 else
   skip_test_step "Python Configurator pytest" "pytest command not found"
 fi
@@ -239,8 +221,12 @@ else
   echo
   echo -e "${BOLD}--- Phase 3: End-to-End Integration & Security Tests ---${RESET}"
 
+  ISOLATION_SCRIPT="$REPO_ROOT/tests/run_cross_mode_isolation.py"
+  if [[ ! -f "$ISOLATION_SCRIPT" ]]; then
+    ISOLATION_SCRIPT="$REPO_ROOT/tests/run_cross_mode_isolation.sh"
+  fi
   run_test_step "Cross-Mode Protocol Isolation (AEAD vs. Auth-Only)" \
-    "python3 '$REPO_ROOT/tests/run_cross_mode_isolation.py' --duration 5"
+    "python3 '$ISOLATION_SCRIPT' --duration 5"
 
   run_test_step "E2E Dynamic Join (Onboarding follower under active load)" \
     "'$REPO_ROOT/tests/run_e2e_dynamic_join.sh'"

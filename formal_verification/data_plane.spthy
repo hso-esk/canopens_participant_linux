@@ -1,0 +1,95 @@
+/*
+ * Copyright (c) 2026
+ *
+ * Hochschule Offenburg, University of Applied Sciences
+ * Institute for reliable Embedded Systems
+ * and Communications Electronic (ivESK)
+ *
+ * This file is licensed as described in the "LICENSE" file
+ * included within the root folder of this work.
+ */
+
+theory data_plane
+begin
+
+/* Tamarin model: SPsec data plane. */
+
+functions: hkdf/2, aead/4, adec/4
+
+equations: adec(aead(k, n, m, a), k, n, a) = m
+
+rule Setup_Group:
+  [ Fr(~seed), Fr(~csalt), Fr(~ksalt) ]
+  --[ OnlyOnce('group') ]->
+  [ !Group(~seed, ~csalt, ~ksalt), Out(~csalt) ]
+
+/* Internal attacker (T5-T9): a compromised member leaks the Seed Key. */
+rule Reveal_Seed:
+  [ !Group(seed, csalt, ksalt) ] --[ RevealSeed() ]-> [ Out(<seed, ksalt>) ]
+
+/* Leak of a single epoch's Communication Key. */
+rule Reveal_CommKey:
+  [ !Group(seed, csalt, ksalt) ]
+  --[ RevealCK($E) ]->
+  [ Out(<hkdf(seed, <$E, csalt>), ksalt>) ]
+
+rule Send:
+  let ck = hkdf(seed, <$E, csalt>) in
+  [ !Group(seed, csalt, ksalt), Fr(~ts), Fr(~m) ]
+  --[ Sent($C, ~ts, ~m, $E) ]->
+  [ Out(<$C, ~ts, aead(ck, <~ts, $C, ksalt>, ~m, <$C, 'len'>)>) ]
+
+rule Receive:
+  let ck = hkdf(seed, <$E, csalt>) in
+  [ !Group(seed, csalt, ksalt),
+    In(<$C, ts, aead(ck, <ts, $C, ksalt>, m, <$C, 'len'>)>) ]
+  --[ Accepted($C, ts, m, $E) ]->
+  [ ]
+
+restriction OnlyOnce:
+  "All x #i #j. OnlyOnce(x) @i & OnlyOnce(x) @j ==> #i = #j"
+
+/* === Lemmas === */
+
+lemma executable:
+  exists-trace
+  "Ex C ts m E #i. Accepted(C, ts, m, E) @i &
+     not (Ex #r. RevealSeed() @r) & not (Ex E2 #r. RevealCK(E2) @r)"
+
+/* Group authenticity against external attacker. */
+lemma group_authenticity:
+  "All C ts m E #i.
+     Accepted(C, ts, m, E) @i & not (Ex #r. RevealSeed() @r) &
+     not (Ex #r. RevealCK(E) @r)
+     ==> Ex #j. Sent(C, ts, m, E) @j & j < i"
+
+/* Payload confidentiality (encryption enabled). */
+lemma payload_secrecy:
+  "All C ts m E #i.
+     Sent(C, ts, m, E) @i & not (Ex #r. RevealSeed() @r) &
+     not (Ex #r. RevealCK(E) @r)
+     ==> not (Ex #j. K(m) @j)"
+
+/* T3: frame replay acceptance within acceptance window. */
+lemma attack_T3_replay:
+  exists-trace
+  "Ex C ts m E #i #j. Accepted(C, ts, m, E) @i & Accepted(C, ts, m, E) @j &
+     not (#i = #j) & not (Ex #r. RevealSeed() @r) &
+     not (Ex E2 #r. RevealCK(E2) @r)"
+
+/* T7 (expected: verified = attack exists): a Seed Key holder injects
+   frames indistinguishable from group traffic. */
+lemma attack_T7_injection_by_member:
+  exists-trace
+  "Ex C ts m E #i. Accepted(C, ts, m, E) @i &
+     not (Ex #j. Sent(C, ts, m, E) @j)"
+
+/* Heartbeat loss-detection suppression via replayed authentic frame. */
+lemma attack_heartbeat_liveness_spoof:
+  exists-trace
+  "Ex C ts m E #i #j.
+     Sent(C, ts, m, E) @i & Accepted(C, ts, m, E) @j & i < j &
+     (Ex #k. Accepted(C, ts, m, E) @k & not (#k = #j)) &
+     not (Ex ts2 m2 E2 #s2. Sent(C, ts2, m2, E2) @s2 & not (#s2 = #i))"
+
+end

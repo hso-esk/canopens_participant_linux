@@ -184,9 +184,7 @@ static void test_parse_timesync_response_frame(void) {
 /* Test parse_default_app_data length handling */
 static void test_parse_default_app_data(void) {
   CanFrame frame = make_frame(11);
-  int secure_data_len = 1;  /* satisfies caller's floor: len - 10 = 1 >= 0.
-                               * Avoid len=10/secure_data_len=0 edge which
-                               * triggers malloc(0) inside spsecappdata_new. */
+  int secure_data_len = 1;  /* Ensure non-zero payload length to avoid malloc(0). */
   SPsecMessage *msg_ptr = parse_default_app_data(0x12345678, &frame, secure_data_len);
   CHECK(msg_ptr != NULL, "parse_default_app_data: len=11, secure_data_len=1 accepts");
   if (msg_ptr) spsecmessage_dispose(msg_ptr);

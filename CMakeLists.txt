@@ -219,10 +219,7 @@ elseif(spsec_crypto_backend_lower STREQUAL "wolfssl")
         target_compile_definitions(wolfssl PUBLIC WOLFSSL_USER_SETTINGS)
         target_include_directories(wolfssl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/common/include)
         if(PLATFORM_BAREMETAL)
-            # No POSIX filesystem (opendir/readdir/DIR) on bare metal.
-            # Both defines are needed: NO_FILESYSTEM skips wc_FileLoad's
-            # dirent.h include, but ReadDirCtx's DIR* member is gated
-            # separately on NO_WOLFSSL_DIR (see wolfcrypt/wc_port.h).
+            # Disable POSIX filesystem and directory access on bare metal.
             target_compile_definitions(wolfssl PUBLIC NO_FILESYSTEM NO_WOLFSSL_DIR)
         endif()
         # wolfSSL ASCON source path
@@ -392,9 +389,7 @@ if(spsec_platform_lower STREQUAL "linux")
     target_compile_options(spsec_participant PRIVATE -Wsign-conversion -Wconversion)
     set(EXECUTABLE_OUTPUT_NAME "spsec_participant")
 elseif(spsec_platform_lower STREQUAL "lpc55s16")
-    # Baremetal entry point (to be provided by application)
-    # add_executable(spsec_lpc55s16 platform/lpc55s16/main.c)
-    # target_link_libraries(spsec_lpc55s16 spsec_core)
+    # Baremetal application entry point: provide main.c and link spsec_core.
     message(STATUS "LPC55S16: Library-only build. Provide your own main.c linking spsec_core.")
     set(EXECUTABLE_OUTPUT_NAME "spsec_lpc55s16")
 endif()
@@ -484,6 +479,17 @@ if(spsec_platform_lower STREQUAL "linux" AND SPSEC_BUILD_TESTS)
     add_executable(test_sync_broadcast_no_window tests/test_sync_broadcast_no_window.c)
     target_link_libraries(test_sync_broadcast_no_window spsec_core)
     add_test(NAME sync_broadcast_no_window COMMAND test_sync_broadcast_no_window)
+    add_executable(test_broadcast_forward_only tests/test_broadcast_forward_only.c)
+    target_link_libraries(test_broadcast_forward_only spsec_core)
+    add_test(NAME broadcast_forward_only COMMAND test_broadcast_forward_only)
+
+    # Attack PoC, not a test: see formal_verification/poc/.
+    add_executable(poc_sync_broadcast_replay EXCLUDE_FROM_ALL
+                   formal_verification/poc/poc_sync_broadcast_replay.c)
+    target_link_libraries(poc_sync_broadcast_replay spsec_core)
+    target_link_options(poc_sync_broadcast_replay PRIVATE
+                        -Wl,--wrap=participant_channel_send_spapp_data)
+
 
     add_executable(test_appdata_aad tests/test_appdata_aad.c)
     target_link_libraries(test_appdata_aad spsec_core)
@@ -548,6 +554,13 @@ if(spsec_platform_lower STREQUAL "linux" AND SPSEC_BUILD_TESTS)
     add_executable(test_can_link_recovery tests/test_can_link_recovery.c)
     target_link_libraries(test_can_link_recovery spsec_core)
     add_test(NAME can_link_recovery COMMAND test_can_link_recovery)
+
+    find_program(TAMARIN_BIN tamarin-prover)
+    find_program(PROVERIF_BIN proverif)
+    if(TAMARIN_BIN AND PROVERIF_BIN)
+        add_test(NAME formal_verification COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/formal_verification/run_proofs.sh)
+        set_tests_properties(formal_verification PROPERTIES TIMEOUT 900)
+    endif()
 
     find_program(TSHARK_BIN tshark)
     if(TSHARK_BIN)

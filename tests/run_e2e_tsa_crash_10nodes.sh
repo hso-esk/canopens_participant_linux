@@ -11,12 +11,7 @@
 # included within the root folder of this work.
 #
 
-# Time Server Authority (TSA) Crash & Restart Recovery at 10-node scale
-#
-# Brings up 10 participants (one TSA + 9 clients), then SIGKILLs the TSA
-# mid-traffic. Verifies clients transition SECURE -> WARNING -> WAITING,
-# then re-converge when the TSA restarts with a fresh csalt.
-#
+# TSA crash and recovery test at 10-node scale.
 # Usage: tests/run_e2e_tsa_crash_10nodes.sh [--duration SECONDS] [--keep]
 
 set -uo pipefail

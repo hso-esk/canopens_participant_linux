@@ -219,6 +219,8 @@ build
 build_*
 spsec_data
 spsec_data_*
+participants_data
+participants_data/*
 
 .cache
 

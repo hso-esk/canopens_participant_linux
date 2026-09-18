@@ -114,9 +114,7 @@ static int storage_matches(const uint8_t *expected_ptr, size_t expected_len) {
   return ok;
 }
 
-/* ============================================================
- * Case 1: 128 x 32-byte segments commit exactly once, full 4096 bytes
- * ============================================================ */
+/* Case 1: 128 x 32-byte segments commit exactly once (4096 bytes) */
 static void test_full_4096_accumulation(void) {
   printf("Case 1: 128 x 32-byte segments commit full 4096 bytes...\n");
   Participant p;
@@ -268,9 +266,7 @@ static void test_fail_closed_without_public_auth_key(void) {
   destroy_test_participant(&p);
 }
 
-/* ============================================================
- * Case 4: re-initiating 92h on a participant discards a stale buffer
- * ============================================================ */
+/* Case 4: re-initiating 92h discards stale buffer */
 static void test_reinitiate_resets_accum(void) {
   printf("Case 4: re-initiating 92h discards any prior accumulation...\n");
   Participant p;

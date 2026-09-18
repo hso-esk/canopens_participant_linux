@@ -9,10 +9,7 @@
  * included within the root folder of this work.
  */
 
-// Regression tests for spsec_is_known_register(): F-08 (0x60-0x63 missing,
-// killing their write path) and F-12 (CODE_UPDATE_FILE expected_len=0,
-// rejecting every write).
-
+// Regression tests for register recognition and length validation.
 #include "keys.h"
 #include "spsec_common.h"
 #include "spsec_mapping.h"

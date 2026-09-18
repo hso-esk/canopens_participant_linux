@@ -1,0 +1,79 @@
+(*
+ * Copyright (c) 2026
+ *
+ * Hochschule Offenburg, University of Applied Sciences
+ * Institute for reliable Embedded Systems
+ * and Communications Electronic (ivESK)
+ *
+ * This file is licensed as described in the "LICENSE" file
+ * included within the root folder of this work.
+ *)
+
+(* ProVerif model: SPsec config session. *)
+
+free c: channel.
+
+type key.
+
+const read_cmd, term_cmd, keyid: bitstring.
+const rd, tm: bitstring.
+
+fun aead(key, bitstring, bitstring, bitstring): bitstring.
+reduc forall k: key, n: bitstring, m: bitstring, a: bitstring;
+  adec(aead(k, n, m, a), k, n, a) = m.
+
+free keyval: bitstring [private].
+
+event ReadReq(bitstring, bitstring, bitstring).
+event ReadServed(bitstring, bitstring).
+event TermSent(bitstring, bitstring, bitstring).
+event TermAccepted(bitstring, bitstring, bitstring).
+
+(* Reachability / sanity *)
+query s, n: bitstring; event(ReadServed(s, n)).
+query cl, s, n: bitstring; event(TermAccepted(cl, s, n)).
+
+(* Secrecy: key material in write-only registers is never disclosed *)
+query attacker(keyval).
+
+(* Authenticity and injective agreement (replay protection) *)
+query cl, s, n: bitstring;
+  inj-event(ReadServed(s, n)) ==> inj-event(ReadReq(cl, s, n)).
+
+query cl, s, n: bitstring;
+  inj-event(TermAccepted(cl, s, n)) ==> inj-event(TermSent(cl, s, n)).
+
+let Client(cl: bitstring, s: bitstring, k: key) =
+  (
+    new n1: bitstring;
+    event ReadReq(cl, s, n1);
+    out(c, (s, n1, aead(k, n1, read_cmd, (rd, s))));
+    in(c, (=s, =n1, resp: bitstring));
+    if adec(resp, k, n1, (rd, s)) = keyid then
+    0
+  ) | (
+    new n2: bitstring;
+    event TermSent(cl, s, n2);
+    out(c, (s, n2, aead(k, n2, term_cmd, (tm, s))))
+  ).
+
+let Server(cl: bitstring, s: bitstring, k: key) =
+  (
+    in(c, (=s, n: bitstring, req: bitstring));
+    if adec(req, k, n, (rd, s)) = read_cmd then
+    event ReadServed(s, n);
+    out(c, (s, n, aead(k, n, keyid, (rd, s))))
+  ) | (
+    in(c, (=s, n: bitstring, cmd: bitstring));
+    if adec(cmd, k, n, (tm, s)) = term_cmd then
+    event TermAccepted(cl, s, n)
+  ).
+
+process
+  new cl: bitstring;
+  new s: bitstring;
+  out(c, (cl, s));
+  !(
+    new k: key;
+    Client(cl, s, k) | Server(cl, s, k)
+  )

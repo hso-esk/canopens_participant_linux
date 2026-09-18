@@ -11,14 +11,7 @@
 #  * included within the root folder of this work.
 #  */
 
-# Wireshark Dissector Field Extraction Test
-#
-# Generates a pcapng file containing three SPsec CAN frames and verifies
-# that wireshark/spsec.lua decodes them correctly.
-#
-# Prerequisites:
-#   sudo apt-get install tshark
-#
+# Wireshark dissector verification test using tshark.
 # Usage: tests/run_wireshark_dissector_test.sh [--keep]
 
 set -uo pipefail
@@ -51,9 +44,7 @@ if [[ ! -f "$DISSECTOR" ]]; then
   exit 1
 fi
 
-# tshark may be sandboxed. Copy the dissector to a world-readable location
-# and chmod 644 so it can be loaded regardless of the original file's
-# ownership.
+# Copy dissector to world-readable location for tshark sandbox access.
 PUBLIC_DISSECTOR="$OUT_DIR/spsec.lua"
 cp "$DISSECTOR" "$PUBLIC_DISSECTOR"
 chmod 644 "$PUBLIC_DISSECTOR"
@@ -61,11 +52,7 @@ DISSECTOR="$PUBLIC_DISSECTOR"
 
 PCAP="$OUT_DIR/spsec.pcap"
 
-# Generate the pcapng file. The SHB body must be exactly 28 bytes:
-#   BOM(4) | maj(2) | min(2) | section_length(8) | options(12)
-# The section_length at SHB-body offset 8..15 holds the byte length of
-# the entire section starting from after the section_length field. This field
-# is patched after writing the rest of the file.
+# Generate pcapng test file with standard Section Header Block.
 python3 - <<'PYEOF' >"$PCAP"
 import struct
 import sys

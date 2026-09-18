@@ -38,9 +38,7 @@
 #define SIOCGIFINDEX 0x8933
 #endif
 
-/* Use the same declarations the platform layer uses, but kept local so the
- * test doesn't need to drag in all of platform/can_interface.c (which would
- * pull in the SocketCAN PF_CAN header set from <linux/can.h>). */
+/* Local socket declarations to avoid pulling in Linux CAN headers. */
 struct ifreq_local {
     char ifr_name[IF_NAMESIZE];
 };

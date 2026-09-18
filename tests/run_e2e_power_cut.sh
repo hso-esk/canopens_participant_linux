@@ -11,11 +11,7 @@
 # included within the root folder of this work.
 #
 
-# Mid-Write Power-Cut Simulation
-#
-# Abruptly kills a participant while a key write is in progress to verify
-# that nvol_storage atomic rename prevents corruption.
-#
+# Power-cut simulation during key writes to verify atomic persistence.
 # Usage: tests/run_e2e_power_cut.sh [--iterations N] [--keep]
 
 set -uo pipefail
@@ -72,7 +68,7 @@ for iter in $(seq 1 "$ITERATIONS"); do
   log "Iteration $iter/$ITERATIONS"
 
   # Launch participant
-  "$PARTICIPANT_BIN" -i vcan0 -s vcan1 -p 120 -k "$KEYS_FILE" -l info \
+  "$PARTICIPANT_BIN" -s vcan0 -i vcan1 -p 120 -k "$KEYS_FILE" -l info \
     > "$RUNDIR/run_${iter}.log" 2>&1 &
   PID=$!
 
@@ -89,7 +85,7 @@ for iter in $(seq 1 "$ITERATIONS"); do
   log "  After kill: $tmp_files .tmp files, $bin_files .bin files"
 
   # Restart and verify it boots
-  "$PARTICIPANT_BIN" -i vcan0 -s vcan1 -p 120 -k "$KEYS_FILE" -l info \
+  "$PARTICIPANT_BIN" -s vcan0 -i vcan1 -p 120 -k "$KEYS_FILE" -l info \
     > "$RUNDIR/restart_${iter}.log" 2>&1 &
   PID2=$!
   sleep 0.5

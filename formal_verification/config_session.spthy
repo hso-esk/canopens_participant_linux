@@ -1,0 +1,92 @@
+/*
+ * Copyright (c) 2026
+ *
+ * Hochschule Offenburg, University of Applied Sciences
+ * Institute for reliable Embedded Systems
+ * and Communications Electronic (ivESK)
+ *
+ * This file is licensed as described in the "LICENSE" file
+ * included within the root folder of this work.
+ */
+
+theory config_session
+begin
+
+/* Tamarin model: SPsec config session. */
+
+functions: aead/4, adec/4, mac/2
+equations: adec(aead(k, n, m, a), k, n, a) = m
+
+restriction OnlyOnce:
+  "All x #i #j. OnlyOnce(x) @i & OnlyOnce(x) @j ==> #i = #j"
+restriction AcceptOnce:
+  "All x #i #j. AcceptOnce(x) @i & AcceptOnce(x) @j ==> #i = #j"
+restriction Eq:
+  "All x y #i. Eq(x, y) @i ==> x = y"
+
+/* A session key shared by one client/server pair, plus the key material the
+   device holds (its value is secret; only its ID is ever read out). */
+rule Session:
+  [ Fr(~k), Fr(~keyval) ]
+  --[ OnlyOnce('sess'), KMaterial(~keyval) ]->
+  [ !Sess($C, $S, ~k), !KeyMaterial($S, ~keyval), CClient($C, $S, ~k) ]
+
+rule Reveal_SessionKey:
+  [ !Sess(C, S, k) ] --[ RevealK() ]-> [ Out(k) ]
+
+/* ---- Register read (read-only registers; key material never leaves) ---- */
+
+rule C_ReadRequest:
+  [ !Sess(C, S, k), Fr(~n) ]
+  --[ ReadReq(C, S, ~n) ]->
+  [ Out(<'rdreq', S, ~n, aead(k, ~n, 'read', <'rd', S>)>) ]
+
+rule S_ReadRespond:
+  let m = adec(req, k, n, <'rd', S>) in
+  [ !Sess(C, S, k), !KeyMaterial(S, keyval), In(<'rdreq', S, n, req>) ]
+  --[ Eq(m, 'read'), AcceptOnce(<k, n>), ReadServed(S, n) ]->
+  [ Out(<'rdresp', S, n, aead(k, n, 'keyid', <'rd', S>)>) ]  /* key ID only */
+
+/* ---- SessionTerminate ---- */
+
+rule C_Terminate:
+  [ !Sess(C, S, k), Fr(~n) ]
+  --[ TermSent(C, S, ~n) ]->
+  [ Out(<'term', S, ~n, aead(k, ~n, 'terminate', <'tm', S>)>) ]
+
+rule S_Terminate:
+  let m = adec(cmd, k, n, <'tm', S>) in
+  [ !Sess(C, S, k), In(<'term', S, n, cmd>) ]
+  --[ Eq(m, 'terminate'), AcceptOnce(<k, n>), TermAccepted(C, S, n) ]->
+  [ ]
+
+/* === Lemmas === */
+
+lemma executable:
+  exists-trace
+  "(Ex S n #i. ReadServed(S, n) @i) &
+   (Ex C S n #j. TermAccepted(C, S, n) @j) &
+   not (Ex #r. RevealK() @r)"
+
+/* Key material is never disclosed by the read path (write-only registers). */
+lemma key_material_secret:
+  "All kv #i #j. KMaterial(kv) @i & K(kv) @j ==> Ex #r. RevealK() @r"
+
+/* Every served read was requested by the honest client; no replay. */
+lemma read_authentic_no_replay:
+  "All S n #i. ReadServed(S, n) @i & not (Ex #r. RevealK() @r)
+     ==> (Ex C #j. ReadReq(C, S, n) @j & j < i)
+       & not (Ex #i2. ReadServed(S, n) @i2 & not (#i2 = #i))"
+
+/* A terminate the server accepts came from the honest client; no replay. */
+lemma terminate_authentic_no_replay:
+  "All C S n #i. TermAccepted(C, S, n) @i & not (Ex #r. RevealK() @r)
+     ==> (Ex #j. TermSent(C, S, n) @j & j < i)
+       & not (Ex #i2. TermAccepted(C, S, n) @i2 & not (#i2 = #i))"
+
+/* An external attacker cannot forge a terminate (DoS on the session). */
+lemma no_forged_terminate:
+  "All C S n #i. TermAccepted(C, S, n) @i & not (Ex #r. RevealK() @r)
+     ==> Ex #j. TermSent(C, S, n) @j"
+
+end

@@ -1,0 +1,102 @@
+(*
+ * Copyright (c) 2026
+ *
+ * Hochschule Offenburg, University of Applied Sciences
+ * Institute for reliable Embedded Systems
+ * and Communications Electronic (ivESK)
+ *
+ * This file is licensed as described in the "LICENSE" file
+ * included within the root folder of this work.
+ *)
+
+(* ProVerif model: SPsec key hierarchy. *)
+
+free c: channel.
+
+type key.
+
+const n1, n2, cf, sf: bitstring.
+const wr: bitstring.
+const prov, integ, seed: bitstring.
+
+fun hkdf(key, bitstring): key.
+fun mac(key, bitstring): bitstring.
+fun aead(key, bitstring, bitstring, bitstring): bitstring.
+reduc forall k: key, n: bitstring, m: bitstring, a: bitstring;
+  adec(aead(k, n, m, a), k, n, a) = m.
+
+fun key_to_bs(key): bitstring [data].
+reduc forall k: key; bs_to_key(key_to_bs(k)) = k.
+
+fun senc(bitstring, key): bitstring.
+reduc forall m: bitstring, k: key; sdec(senc(m, k), k) = m.
+
+free integ_secret, seed_secret: bitstring [private].
+
+event Gen(bitstring, bitstring, key).
+event Installed(bitstring, bitstring, key).
+
+(* Reachability / sanity *)
+query p: bitstring, k: key; event(Installed(p, integ, k)).
+query p: bitstring, k: key; event(Installed(p, seed, k)).
+
+(* Secrecy of derived child keys *)
+query attacker(integ_secret).
+query attacker(seed_secret).
+
+(* Authenticity & no-replay of child key installation *)
+query p: bitstring, k: key;
+  inj-event(Installed(p, integ, k)) ==> inj-event(Gen(p, integ, k)).
+
+query p: bitstring, k: key;
+  inj-event(Installed(p, seed, k)) ==> inj-event(Gen(p, seed, k)).
+
+(* Handshake between C and P with pre-shared key psk_val *)
+let Client(p: bitstring, ks: bitstring, psk_val: key, child_type: bitstring, new_k: key) =
+  new rA: bitstring;
+  out(c, (p, ks, rA));
+  in(c, (=p, rB: bitstring));
+  let k = hkdf(psk_val, (rA, rB)) in
+  let tagC = mac(k, (n1, (cf, p, ks, rA, rB))) in
+  out(c, tagC);
+  in(c, xtagS: bitstring);
+  if xtagS = mac(k, (n2, (sf, p, rA, rB, tagC))) then
+  (* Handshake complete. Write child key *)
+  new n: bitstring;
+  event Gen(p, child_type, new_k);
+  out(c, (p, n, aead(k, n, (child_type, key_to_bs(new_k)), (wr, p)))).
+
+let Server(p: bitstring, ks: bitstring, psk_val: key, child_type: bitstring) =
+  in(c, (=p, =ks, rA: bitstring));
+  new rB: bitstring;
+  out(c, (p, rB));
+  in(c, xtagC: bitstring);
+  let k = hkdf(psk_val, (rA, rB)) in
+  if xtagC = mac(k, (n1, (cf, p, ks, rA, rB))) then
+  out(c, mac(k, (n2, (sf, p, rA, rB, xtagC))));
+  (* Handshake complete. Receive child key write *)
+  in(c, (=p, n: bitstring, cipher: bitstring));
+  let (=child_type, bs_k: bitstring) = adec(cipher, k, n, (wr, p)) in
+  let inst_k = bs_to_key(bs_k) in
+  event Installed(p, child_type, inst_k);
+  if child_type = integ then out(c, senc(integ_secret, inst_k))
+  else if child_type = seed then out(c, senc(seed_secret, inst_k)).
+
+process
+  new p: bitstring;
+  out(c, p);
+  !(
+    (* Provisioning Key delivered out of band (factory) *)
+    new prov_k: key;
+    new integ_k: key;
+    new seed_k: key;
+    (
+      (* Install Integrator Key under Provisioning Key *)
+      Client(p, prov, prov_k, integ, integ_k) |
+      Server(p, prov, prov_k, integ)
+    ) | (
+      (* Install Seed Key under Integrator Key *)
+      Client(p, integ, integ_k, seed, seed_k) |
+      Server(p, integ, integ_k, seed)
+    )
+  )

@@ -79,9 +79,7 @@ int main(void) {
     return 1;
   }
 
-  /* A timestamp comfortably past the first bit-23 transition, so both the even
-   * and odd transition points are well defined. Held CONSTANT for the whole
-   * test: that is what isolates "the seed changed" from "the epoch rolled". */
+  /* Constant timestamp to isolate seed change from epoch rollover. */
   uint8_t ts[8];
   ts_to_le8((uint64_t)0x05000000ULL, ts);
 
@@ -93,9 +91,7 @@ int main(void) {
 
   uint8_t even_a[KEY_LEN], odd_a[KEY_LEN];
 
-  /* ---------------------------------------------------------------
-   * Case 1: install Seed A, derive the communication keys.
-   * --------------------------------------------------------------- */
+  /* Case 1: install Seed A, derive communication keys. */
   printf("Case 1: derive communication keys from Seed A...\n");
   CHECK(apply_key(&p, 3, seed_a) == SPSEC_SUCCESS, "Case 1: Seed A installed");
   CHECK(apply_salt(&p, 3, salt) == SPSEC_SUCCESS, "Case 1: Seed salt installed");

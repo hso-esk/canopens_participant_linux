@@ -11,12 +11,7 @@
 # included within the root folder of this work.
 #
 
-# Seed Key Rotation Test
-#
-# Verifies that an Integrator-key session can rotate the Seed key set on an
-# active participant, updating data-plane communication without erasing existing
-# Provisioning or Integrator keys.
-#
+# Seed key rotation test on active participant without key erasure.
 # Usage: tests/run_e2e_rekey_seed.sh [--keep] [--log-level LEVEL]
 set -uo pipefail
 
@@ -90,18 +85,13 @@ fi
 python3 -c "import can, Crypto" 2>/dev/null || {
   echo "[rekey] Python configurator deps missing" >&2; exit 1; }
 
-# Match on /proc/PID/exe, not on a name or a command line: `pgrep -f` also
-# matches any shell merely mentioning the binary, and `pgrep -x` never matches
-# because Linux truncates comm to 15 chars ("spsec_participa").
+# Match on /proc/PID/exe to avoid comm truncation false negatives.
 stale_participants() {
   local target p exe
   target="$(readlink -f "$PARTICIPANT_BIN" 2>/dev/null)" || return 0
   [ -n "$target" ] || return 0
   for p in /proc/[0-9]*; do
-    # A participant started before a rebuild still holds the OLD inode, and the
-    # kernel then renders its exe link as "<path> (deleted)". Strip that suffix,
-    # otherwise every stale process survives a rebuild undetected - which is
-    # exactly how one kept poisoning the bus.
+    # Strip deleted suffix to detect stale processes holding old inodes.
     exe="$(readlink "$p/exe" 2>/dev/null)"
     exe="${exe% (deleted)}"
     if [ "$exe" = "$target" ]; then
@@ -115,9 +105,7 @@ if [ -n "$(stale_participants)" ]; then
   exit 1
 fi
 
-# A second key file identical to the first except for the Seed key set, so a
-# successful rotation is observable: the old Seed key must stop working and the
-# new one must start.
+# Second key file with modified Seed key to observe rotation.
 NEW_KEYS="$RUNDIR/rekeyed_seed.txt"
 {
   grep -vE '^seed_(key|salt):' "$KEYS_FILE"
@@ -128,7 +116,7 @@ NEW_KEYS="$RUNDIR/rekeyed_seed.txt"
 export SPSEC_STORAGE_PATH="$RUNDIR/data"
 
 log "starting participant $TARGET_PID (RUNDIR=$RUNDIR)"
-"$PARTICIPANT_BIN" -s vcan0 -i vcan1 -p "$TARGET_PID" -l "$LOG_LEVEL" \
+"$PARTICIPANT_BIN" -s vcan0 -i vcan1 -p "$TARGET_PID" -k "$SCRIPT_DIR/example_keys_provisioning_only.txt" -l "$LOG_LEVEL" \
   > "$RUNDIR/p$TARGET_PID.log" 2>&1 &
 PARTICIPANT_PID=$!
 wait_for_log "$RUNDIR/p$TARGET_PID.log" "Starting main loop" 10 || {
@@ -140,9 +128,7 @@ cli() {
     -i vcan0 -k "$keys" "$@" 2>/dev/null
 }
 
-# The Seed key cannot open a session (REQ-PART-025), so a rotation is verified
-# through the Seed Key ID register (43h), read over a Zero-Key session, plus the
-# participant's own "Seed key/salt applied" records.
+# Verify rotation via Seed Key ID register 43h and applied logs.
 seed_key_id() {
   cli "$KEYS_FILE" discover --start-pid "$TARGET_PID" --end-pid "$TARGET_PID" --key zero \
     | sed -n 's/.*seed=0x0*\([0-9a-fA-F]\+\).*/\1/p' | head -1
@@ -159,9 +145,7 @@ grep -q "1/1 device(s) provisioned" "$RUNDIR/provision.log" \
   && add_check "device provisions through the ladder" PASS \
   || add_check "device provisions through the ladder" FAIL
 
-# Every key must survive the ladder. The participant used to wipe "lower
-# priority" keys on each successful handshake, which destroyed the Provisioning
-# key the moment the ladder opened its Integrator session.
+# Verify all installed keys survive successive ladder sessions.
 ! grep -q "Resetting lower-priority key" "$RUNDIR/p$TARGET_PID.log" \
   && add_check "no keys are burned during the ladder" PASS \
   || add_check "no keys are burned during the ladder" FAIL
@@ -180,9 +164,7 @@ grep -q "seed key rekeyed" "$RUNDIR/rekey.log" \
   && add_check "rekey-seed reports success" PASS \
   || add_check "rekey-seed reports success" FAIL
 
-# The rotation must be real, not just reported: the participant must have
-# applied a fresh Seed key AND salt (two applies each - one from the ladder,
-# one from the rotation).
+# Verify participant applied both fresh Seed key and salt.
 [[ "$(applied_count 'Seed key applied')" -ge 2 ]] \
   && add_check "participant applied a new Seed key" PASS \
   || add_check "participant applied a new Seed key" FAIL
@@ -191,10 +173,7 @@ grep -q "seed key rekeyed" "$RUNDIR/rekey.log" \
   && add_check "participant applied a new Seed salt" PASS \
   || add_check "participant applied a new Seed salt" FAIL
 
-# The rotation must re-key the DATA PLANE at the moment of the write, not at the
-# next key epoch. Without this the odd/even Communication Keys stay derived from
-# the previous seed for up to ~28 min while the new Seed salt is already live as
-# nonce padding - i.e. new nonce, old key, every frame failing to authenticate.
+# Verify data plane re-keys immediately upon Seed key write.
 grep -q "communication keys invalidated" "$RUNDIR/p$TARGET_PID.log" \
   && add_check "Seed write re-keys the data plane immediately" PASS \
   || add_check "Seed write re-keys the data plane immediately" FAIL
@@ -204,9 +183,7 @@ grep -q "communication keys invalidated" "$RUNDIR/p$TARGET_PID.log" \
   && add_check "Seed Key ID register reflects the rotation" PASS \
   || add_check "Seed Key ID register reflects the rotation (got $(seed_key_id))" FAIL
 
-# A Seed key must not be usable to open a configuration session. Invoked
-# directly rather than through cli(), which discards stderr - argparse reports
-# the rejection there.
+# Verify Seed key cannot open a configuration session.
 PYTHONPATH="$CONFIGURATOR_SRC" python3 -m spsec_configurator.cli.group_cli \
   -i vcan0 -k "$NEW_KEYS" discover --start-pid "$TARGET_PID" --end-pid "$TARGET_PID" \
   --key seed > "$RUNDIR/seed_session.log" 2>&1

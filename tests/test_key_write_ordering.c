@@ -67,43 +67,21 @@ static void teardown_test_participant(Participant *p_ptr) {
 }
 
 static void test_provisioning_key_id_first(void) {
-  printf("Testing Provisioning Key ID-first write ordering...\n");
+  printf("Testing Provisioning Key write disallowed via protocol...\n");
   Participant p;
   init_test_participant(&p);
 
   uint8_t id_data[4];
   u32_to_le(0xA1B2C3D4, id_data);
 
-  /* 1. Write Key ID before key material */
+  /* Provisioning Key ID and Key material writes must be rejected (manufacturer only) */
   spsec_ret_t ret = apply_key_id(&p, 1, id_data, 4);
-  CHECK(ret == SPSEC_SUCCESS, "apply_key_id for index 1 succeeds");
-  CHECK(p.comm_keys.spsec_keys[1] != NULL, "key object allocated");
-  CHECK(p.comm_keys.spsec_keys[1]->key_id == 0xA1B2C3D4, "key ID saved");
-  CHECK(!register_is_key_material_set(&p, 1), "key material is not yet set (zeroed)");
+  CHECK(ret == SPSEC_ERROR_REGISTER_ACCESS_DENIED, "apply_key_id for index 1 rejected with ACCESS_DENIED");
 
-  /* 2. Write key material */
   uint8_t key_data[KEY_LEN];
   memset(key_data, 0x55, KEY_LEN);
   ret = apply_key(&p, 1, key_data);
-  CHECK(ret == SPSEC_SUCCESS, "apply_key succeeds after ID was already set (no lockout)");
-  CHECK(register_is_key_material_set(&p, 1), "key material is now set");
-  CHECK(memcmp(p.comm_keys.spsec_keys[1]->key, key_data, KEY_LEN) == 0,
-        "key material matches written bytes");
-  CHECK(p.comm_keys.spsec_keys[1]->key_id == 0xA1B2C3D4, "key ID preserved");
-
-  /* 3. Second write to Provisioning Key material must be rejected */
-  uint8_t key_data2[KEY_LEN];
-  memset(key_data2, 0x66, KEY_LEN);
-  ret = apply_key(&p, 1, key_data2);
-  CHECK(ret == SPSEC_ERROR_KEY_ALREADY_SET, "second apply_key rejected with KEY_ALREADY_SET");
-  CHECK(memcmp(p.comm_keys.spsec_keys[1]->key, key_data, KEY_LEN) == 0,
-        "original key material unmodified");
-
-  /* 4. Second write to Provisioning Key ID must be rejected */
-  uint8_t id_data2[4];
-  u32_to_le(0x99999999, id_data2);
-  ret = apply_key_id(&p, 1, id_data2, 4);
-  CHECK(ret == SPSEC_ERROR_KEY_ALREADY_SET, "second apply_key_id rejected with KEY_ALREADY_SET");
+  CHECK(ret == SPSEC_ERROR_REGISTER_ACCESS_DENIED, "apply_key for index 1 rejected with ACCESS_DENIED");
 
   teardown_test_participant(&p);
 }

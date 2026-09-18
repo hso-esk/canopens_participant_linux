@@ -40,9 +40,7 @@ static void init_test_participant(Participant *p_ptr) {
   memset(p_ptr, 0, sizeof(*p_ptr));
 }
 
-/* ============================================================
- * Test register_check_write_status
- * ============================================================ */
+/* Test register_check_write_status */
 
 static void test_register_check_write_status(void) {
   Participant p;
@@ -75,9 +73,9 @@ static void test_register_check_write_status(void) {
   /* Case 3: Length mismatch is rejected */
   p.state_info.prepared_write_register = SENTINEL;
   {
-    spsec_ret_t ret = register_check_write_status(&p, SPSEC_REG_PROVISIONING_KEY, 99);
+    spsec_ret_t ret = register_check_write_status(&p, SPSEC_REG_INTEGRATOR_KEY, 99);
     CHECK(ret == SPSEC_ERROR_REGISTER_INVALID_LENGTH,
-          "Case 3: PROVISIONING_KEY with wrong len returns SPSEC_ERROR_REGISTER_INVALID_LENGTH");
+          "Case 3: INTEGRATOR_KEY with wrong len returns SPSEC_ERROR_REGISTER_INVALID_LENGTH");
     CHECK(p.state_info.prepared_write_register == SENTINEL,
           "Case 3: prepared_write_register unchanged on length mismatch");
   }
@@ -85,17 +83,15 @@ static void test_register_check_write_status(void) {
   /* Case 4: Valid register write sets prepared register */
   p.state_info.prepared_write_register = SENTINEL;
   {
-    spsec_ret_t ret = register_check_write_status(&p, SPSEC_REG_PROVISIONING_KEY, KEY_LEN);
+    spsec_ret_t ret = register_check_write_status(&p, SPSEC_REG_INTEGRATOR_KEY, KEY_LEN);
     CHECK(ret == SPSEC_SUCCESS,
-          "Case 4: PROVISIONING_KEY with correct len returns SPSEC_SUCCESS");
-    CHECK(p.state_info.prepared_write_register == SPSEC_REG_PROVISIONING_KEY,
-          "Case 4: prepared_write_register set to 0x21 on success");
+          "Case 4: INTEGRATOR_KEY with correct len returns SPSEC_SUCCESS");
+    CHECK(p.state_info.prepared_write_register == SPSEC_REG_INTEGRATOR_KEY,
+          "Case 4: prepared_write_register set to 0x22 on success");
   }
 }
 
-/* ============================================================
- * Main
- * ============================================================ */
+/* Main */
 
 int main(void) {
   configure_logging("CRITICAL");

@@ -10,9 +10,7 @@
  */
 
 // Known-answer tests for whichever crypto backend the build selected
-// (SPSEC_CRYPTO_BACKEND). Run once per backend so mbedTLS and wolfSSL can't
-// silently diverge: AEAD round-trip, tag/ciphertext/AAD tamper rejection,
-// plus the constant-time compare helper.
+// AEAD round-trip and tamper rejection tests for active crypto backend.
 
 #include "crypto.h"
 #include "keys.h"

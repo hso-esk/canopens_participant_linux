@@ -11,20 +11,7 @@
 # included within the root folder of this work.
 #
 
-# Interactive Step-by-Step Multi-Participant GUI Demo:
-#   1. Starts unprovisioned participants PID 120 (TSA) and 121 (Client) over SocketCAN.
-#   2. Opens the live desktop GUI with an embedded Step-by-Step Stage Controller.
-#   3. Pauses at each stage and only advances when you click the 'Next Stage' button
-#      (or press [Enter] in the terminal):
-#        - Stage 1: Discover Participants (PIDs 120-121)
-#        - Stage 2: Provision Participant 120 (Zero -> Prov -> Int -> Seed)
-#        - Stage 3: Provision Participant 121 (Zero -> Prov -> Int -> Seed)
-#        - Stage 4: Verify Time Synchronization (Nodes enter SECURE state)
-#        - Stage 5: Verify Bidirectional CANopen Data Plane (vcan1 <-> vcan2)
-#        - Stage 6: Disable Participant 120 via Factory Reset (0x1D04E5E1 to reg 0x7F)
-#        - Stage 7: Post-Disable Security Check & State Verification (Traffic Dropped)
-#        - Stage 8: Clean Finish & Teardown
-#
+# Interactive step-by-step multi-participant GUI demonstration.
 # Usage: tests/run_interactive_gui.sh [--auto] [--keep] [--log-level LEVEL] [--keys FILE]
 set -uo pipefail
 

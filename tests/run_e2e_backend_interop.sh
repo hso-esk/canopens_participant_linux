@@ -11,16 +11,7 @@
 # included within the root folder of this work.
 #
 
-# Heterogeneous Crypto Backend Interoperability Test
-#
-# Brings up one participant built with wolfSSL and one with mbedTLS on the
-# same bus, exchanges secure process data, and verifies the frames are
-# accepted by both backends.
-#
-# Prerequisites:
-#   build/         (default wolfSSL)
-#   build_mbedtls/ (built with -DSPSEC_CRYPTO_BACKEND=mbedtls)
-#
+# Interoperability test between wolfSSL and mbedTLS participant builds.
 # Usage: tests/run_e2e_backend_interop.sh [--keep] [--duration SECONDS]
 
 set -uo pipefail
@@ -59,6 +50,8 @@ if [[ ! -x "$MBED_BIN" ]]; then
 fi
 
 RUNDIR="$(mktemp -d /tmp/spsec_backend_interop.XXXXXX)"
+export SPSEC_STORAGE_PATH="$RUNDIR/storage"
+mkdir -p "$SPSEC_STORAGE_PATH"
 WOLF_PID=""
 MBED_PID=""
 OVERALL_RC=0
@@ -85,13 +78,13 @@ fi
 
 # Start wolfSSL participant
 log "Starting wolfSSL participant (PID 120, TSA)"
-"$WOLF_BIN" -i vcan0 -s vcan1 -p 120 -k "$KEYS_FILE" -t -l info \
+"$WOLF_BIN" -s vcan0 -i vcan1 -p 120 -k "$KEYS_FILE" -t -l info \
   > "$RUNDIR/wolfssl.log" 2>&1 &
 WOLF_PID=$!
 
 # Start mbedTLS participant
 log "Starting mbedTLS participant (PID 121)"
-"$MBED_BIN" -i vcan0 -s vcan2 -p 121 -k "$KEYS_FILE" -l info \
+"$MBED_BIN" -s vcan0 -i vcan2 -p 121 -k "$KEYS_FILE" -l info \
   > "$RUNDIR/mbedtls.log" 2>&1 &
 MBED_PID=$!
 

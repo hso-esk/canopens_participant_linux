@@ -133,9 +133,7 @@ else
   add_check "device provisions through the ladder" FAIL
 fi
 
-# Build a 4096-byte image with a known pattern: byte i has value (i & 0xFF).
-# 128 segments of 32 bytes each. The fixed pattern allows asserting that the file is
-# the concatenation, not a single truncated segment.
+# Build 4096-byte image with known byte pattern in 128 32-byte segments.
 python3 -c "
 import sys
 sys.stdout.buffer.write(bytes(i & 0xFF for i in range(4096)))
@@ -153,7 +151,8 @@ upload_rc=$?
 grep -q "Image stored" "$RUNDIR/upload.log" \
   && add_check "code-update CLI reports success" PASS \
   || { add_check "code-update CLI reports success" FAIL; cat "$RUNDIR/upload.log" >&2; }
-STORED_FILE="$RUNDIR/data_${TARGET_PID}/code_update/update_file.bin"
+STORED_FILE="$RUNDIR/data/${TARGET_PID}/code_update/update_file.bin"
+[[ ! -f "$STORED_FILE" ]] && STORED_FILE="$RUNDIR/data_${TARGET_PID}/code_update/update_file.bin"
 # failed) or be only 32 bytes (last segment only).
 if [[ -f "$STORED_FILE" ]]; then
   # Bin format: 1 byte on disk per byte of plaintext.
@@ -169,9 +168,7 @@ if [[ -f "$STORED_FILE" ]]; then
 else
   add_check "participant wrote code_update/update_file" FAIL
 fi
-# The log should show exactly one "Code update file saved to storage" line
-# and 127 "segment accepted" lines, never 128 file-save lines. The apply
-# path used to log "Code update file saved to storage" on every segment.
+# Verify exactly one file-save log and 127 segment accepted lines.
 save_count="$(grep -c 'Code update file saved to storage' "$RUNDIR/p$TARGET_PID.log" || true)"
 [[ "$save_count" -eq 1 ]] \
   && add_check "storage written exactly once (got $save_count)" PASS \

@@ -15,6 +15,7 @@ import argparse
 import json
 import statistics
 import struct
+import sys
 import threading
 import time
 import can
@@ -28,13 +29,13 @@ def run_latency_benchmark(tx_channel="vcan1", rx_channel="vcan2", count=100, gap
 
     def rx_worker():
         try:
-            with can.interface.Bus(channel=rx_channel, interface="socketcan") as rx_bus:
+            with can.interface.Bus(channel=rx_channel, interface="socketcan", fd=True) as rx_bus:
                 while not stop_event.is_set():
                     msg = rx_bus.recv(timeout=0.1)
                     if msg is None:
                         continue
                     now_ns = time.perf_counter_ns()
-                    if msg.arbitration_id == 0x181 and len(msg.data) >= 8:
+                    if (msg.arbitration_id & 0x1FFFFFFF) == 0x181 and len(msg.data) >= 8:
                         seq = struct.unpack(">I", msg.data[:4])[0]
                         if seq in send_times and seq not in recv_times:
                             recv_times[seq] = now_ns
@@ -50,13 +51,13 @@ def run_latency_benchmark(tx_channel="vcan1", rx_channel="vcan2", count=100, gap
     # Allow listener to attach
     time.sleep(0.05)
 
-    with can.interface.Bus(channel=tx_channel, interface="socketcan") as tx_bus:
+    with can.interface.Bus(channel=tx_channel, interface="socketcan", fd=True) as tx_bus:
         for seq in range(count):
             now_ns = time.perf_counter_ns()
             send_times[seq] = now_ns
             # 4-byte sequence number + 4-byte dummy payload
             data = struct.pack(">II", seq, 0x12345678)
-            msg = can.Message(arbitration_id=0x181, data=data, is_extended_id=False)
+            msg = can.Message(arbitration_id=0x181, data=data, is_extended_id=False, is_fd=True)
             tx_bus.send(msg)
             time.sleep(gap)
 
@@ -123,6 +124,9 @@ def main():
             print(f"  P99:    {stats['p99_us']} us")
             print(f"  Max:    {stats['max_us']} us")
             print(f"  Stdev:  {stats['stdev_us']} us")
+
+    if "error" in stats:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

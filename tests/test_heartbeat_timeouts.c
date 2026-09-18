@@ -9,11 +9,7 @@
  * included within the root folder of this work.
  */
 
-/**
- * @file test_heartbeat_timeouts.c
- * @brief Unit tests for participant_check_heartbeat_timing() and
- *        participant_check_heartbeat_timeouts() functions.
- */
+/* Unit tests for heartbeat timing and timeout detection. */
 
 #include "spsec_common.h"
 #include "participant.h"

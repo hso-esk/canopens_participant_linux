@@ -10,9 +10,7 @@
  */
 
 // Regression tests for the timer backward-jump guard. The clock starts
-// seeded from getrandom() (~2^63), so the FIRST time-sync must be accepted
-// even though it jumps far "backward" to the authority's real timestamp;
-// only later backward jumps count as rollback attempts.
+// Initial time-sync jump from CSPRNG seed is accepted.
 
 #include "spsec_common.h"
 #include "timer.h"
@@ -55,9 +53,7 @@ int main(void) {
   printf("initial (random) timestamp = %llu\n",
          (unsigned long long)le_to_u64(initial));
 
-  // First authoritative set: a small real timestamp. Even though it is far
-  // below the random init, it MUST be accepted (this is the bug the guard
-  // must not reintroduce).
+  // First authoritative timestamp set is accepted regardless of init value.
   uint8_t first[8];
   u64_to_le(1000000ULL, first); // 100 s at 0.1 ms ticks
   CHECK(timer_set_timestamp(&t, first) == 0, "first sync accepted");

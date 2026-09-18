@@ -57,7 +57,7 @@ static void init_test_participant(Participant *p_ptr) {
 
   p_ptr->session.auth_tag_data_ptr = authtagparticipantdata_new();
   if (p_ptr->session.auth_tag_data_ptr) {
-    p_ptr->session.auth_tag_data_ptr->key_selector[0] = KEY_SELECTOR_PROVISIONING;
+    p_ptr->session.auth_tag_data_ptr->key_selector[0] = KEY_SELECTOR_INTEGRATOR;
   }
 
   p_ptr->state_info.prepared_write_register = SPSEC_REG_CODE_UPDATE_FILE;

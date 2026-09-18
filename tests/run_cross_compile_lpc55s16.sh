@@ -11,16 +11,7 @@
 # included within the root folder of this work.
 #
 
-# LPC55S16 Bare-Metal Cross-Compilation Smoke Test
-#
-# Verifies the shared SPsec core code can be cross-compiled for the
-# Cortex-M33 target (arm-none-eabi-gcc) without leaking POSIX or 64-bit
-# assumptions. This is a compiler/linker test - the resulting binary is
-# freestanding and not meant to run on Linux.
-#
-# Prerequisites:
-#   sudo apt install gcc-arm-none-eabi binutils-arm-none-eabi
-#
+# Bare-metal cross-compilation smoke test for Cortex-M33 target.
 # Usage: tests/run_cross_compile_lpc55s16.sh [--keep-build]
 
 set -uo pipefail

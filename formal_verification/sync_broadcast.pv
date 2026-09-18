@@ -1,0 +1,51 @@
+(*
+ * Copyright (c) 2026
+ *
+ * Hochschule Offenburg, University of Applied Sciences
+ * Institute for reliable Embedded Systems
+ * and Communications Electronic (ivESK)
+ *
+ * This file is licensed as described in the "LICENSE" file
+ * included within the root folder of this work.
+ *)
+
+(* ProVerif model: SPsec sync broadcast. *)
+
+free c: channel.
+
+type key.
+
+const synctime: bitstring.
+
+fun hkdf(key, bitstring): key.
+fun mac(key, bitstring): bitstring.
+
+event Broadcast(bitstring, bitstring).
+event Adopt(bitstring, bitstring).
+
+(* Reachability / sanity *)
+query e, tim: bitstring; event(Adopt(e, tim)).
+
+(* Broadcast authenticity: any adopted timer value was authentically broadcast by the Sync *)
+query e, tim: bitstring;
+  event(Adopt(e, tim)) ==> event(Broadcast(e, tim)).
+
+let Sync(seed: key) =
+  in(c, e: bitstring);
+  new tim: bitstring;
+  let ck = hkdf(seed, e) in
+  event Broadcast(e, tim);
+  out(c, (synctime, e, tim, mac(ck, (synctime, e, tim)))).
+
+let Receiver(seed: key) =
+  in(c, (=synctime, e: bitstring, tim: bitstring, tag: bitstring));
+  let ck = hkdf(seed, e) in
+  if tag = mac(ck, (synctime, e, tim)) then
+  event Adopt(e, tim).
+
+process
+  new seed: key;
+  (
+    !Sync(seed) |
+    !Receiver(seed)
+  )

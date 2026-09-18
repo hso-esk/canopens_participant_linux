@@ -1,0 +1,78 @@
+(*
+ * Copyright (c) 2026
+ *
+ * Hochschule Offenburg, University of Applied Sciences
+ * Institute for reliable Embedded Systems
+ * and Communications Electronic (ivESK)
+ *
+ * This file is licensed as described in the "LICENSE" file
+ * included within the root folder of this work.
+ *)
+
+(* ProVerif model: SPsec handshake computational. *)
+
+param NC, NS.
+
+type nonce [large, fixed].
+type pskey [large, fixed].
+type skey [large, fixed].
+type tag [fixed].
+
+proba Pprf.
+proba Pmac.
+
+expand PRF_large_2(pskey, nonce, nonce, skey, hkdf, Pprf).
+expand SUF_CMA_det_mac(skey, bitstring, tag, mac, check, Pmac).
+
+(* AD of ClientFinished (ks || rndA || rndB || CAN ID) and of
+   ServerFinished (addr || rndA || rndB || tagC || addr). *)
+fun cf_ad(nonce, nonce): bitstring [data].
+fun sf_ad(nonce, nonce, tag): bitstring [data].
+equation forall a: nonce, b: nonce, a2: nonce, b2: nonce, t: tag;
+  cf_ad(a, b) <> sf_ad(a2, b2, t).
+
+event ClientRunning(nonce, nonce, tag).
+event ClientAccept(nonce, nonce, tag).
+event ServerRunning(nonce, nonce, tag).
+event ServerAccept(nonce, nonce, tag).
+
+query a: nonce, b: nonce, t: tag;
+  inj-event(ServerAccept(a, b, t)) ==> inj-event(ClientRunning(a, b, t)).
+query a: nonce, b: nonce, t: tag;
+  inj-event(ClientAccept(a, b, t)) ==> inj-event(ServerRunning(a, b, t)).
+
+channel c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, start.
+
+let Client(psk: pskey) =
+  ! i <= NC
+  in(c1, ());
+  new rA: nonce;
+  out(c2, rA);
+  in(c3, rB: nonce);
+  let k = hkdf(psk, rA, rB) in
+  let tC = mac(cf_ad(rA, rB), k) in
+  event ClientRunning(rA, rB, tC);
+  out(c4, tC);
+  in(c5, tS: tag);
+  if check(sf_ad(rA, rB, tC), k, tS) then
+  event ClientAccept(rA, rB, tC);
+  out(c6, ()).
+
+let Server(psk: pskey) =
+  ! j <= NS
+  in(c7, rA: nonce);
+  new rB: nonce;
+  out(c8, rB);
+  in(c9, tC: tag);
+  let k = hkdf(psk, rA, rB) in
+  if check(cf_ad(rA, rB), k, tC) then
+  event ServerAccept(rA, rB, tC);
+  let tS = mac(sf_ad(rA, rB, tC), k) in
+  event ServerRunning(rA, rB, tC);
+  out(c10, tS).
+
+process
+  in(start, ());
+  new psk: pskey;
+  out(c0, ());
+  (Client(psk) | Server(psk))

@@ -9,10 +9,7 @@
  * included within the root folder of this work.
  */
 
-// Regression tests for config_init_defaults()/config_validate(): NULL
-// handling, default config validity, participant_id boundaries (F-07:
-// 0/128 rejected, 1/127 accepted), interface/timeout field validation.
-
+// Regression tests for config_init_defaults() and config_validate().
 #include "config.h"
 #include "spsec_common.h"
 

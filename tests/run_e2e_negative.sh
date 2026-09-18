@@ -11,10 +11,7 @@
 # included within the root folder of this work.
 #
 
-# Fault Injection & Negative Security Tests
-#
-# Runs fault-injection tests covering tag corruption, frame drops, and unauthorized register reads.
-#
+# Fault injection and negative tests for tag corruption and unauthorized access.
 # Usage: tests/run_e2e_negative.sh [--keep] [--log-level LEVEL]
 set -uo pipefail
 
@@ -77,18 +74,13 @@ fi
 [[ -x "$PARTICIPANT_BIN" ]] || { echo "[negative] $PARTICIPANT_BIN not found; build first" >&2; exit 1; }
 python3 -c "import can, Crypto" 2>/dev/null || {
   echo "[negative] Python configurator deps missing" >&2; exit 1; }
-# Match on /proc/PID/exe, not on a name or a command line: `pgrep -f` also
-# matches any shell merely mentioning the binary, and `pgrep -x` never matches
-# because Linux truncates comm to 15 chars ("spsec_participa").
+# Match on /proc/PID/exe to avoid comm truncation false negatives.
 stale_participants() {
   local target p exe
   target="$(readlink -f "$PARTICIPANT_BIN" 2>/dev/null)" || return 0
   [ -n "$target" ] || return 0
   for p in /proc/[0-9]*; do
-    # A participant started before a rebuild still holds the OLD inode, and the
-    # kernel then renders its exe link as "<path> (deleted)". Strip that suffix,
-    # otherwise every stale process survives a rebuild undetected - which is
-    # exactly how one kept poisoning the bus.
+    # Strip deleted suffix to detect stale processes holding old inodes.
     exe="$(readlink "$p/exe" 2>/dev/null)"
     exe="${exe% (deleted)}"
     if [ "$exe" = "$target" ]; then

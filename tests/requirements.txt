@@ -10,12 +10,3 @@
 #  */
 
 python-can==4.5.0
-
-# Required by run_all_tests.sh's --unit-only/-a pytest step
-pytest>=8.0.0
-
-# Required by run_e2e_gui.sh / run_interactive_gui.sh (AEAD in the GUI test)
-pycryptodome>=3.20.0
-
-# Note: run_e2e_gui.sh / run_interactive_gui.sh also need the system Tk
-# bindings, which pip cannot install: sudo apt install python3-tk

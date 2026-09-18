@@ -11,18 +11,8 @@
 # included within the root folder of this work.
 #
 
-# Long-running multi-participant SocketCAN stability test.
-#
+# Multi-participant SocketCAN stability test across 10 nodes.
 # Usage: tests/run_e2e_stability_10nodes.sh [--duration SECONDS] [--nodes N]
-#        [--base-id N] [--algo aes-gcm|chacha|ascon] [--auth-only]
-#        [--warmup SECONDS] [--log-level LEVEL] [--keep]
-#
-# Starts node BASE_ID as TSA and the next NODES-1 IDs as clients. vcan0 carries
-# SPsec traffic; each participant has a distinct local CAN bus, vcan1 through
-# vcanNODES. Participant IDs are clamped to 1..127 by spsec_participant, so
-# BASE_ID + NODES - 1 must be ≤ 127. A --warmup window after provisioning lets
-# timesync propagate before the first traffic round (otherwise the 15 ms
-# acceptance window rejects early frames as replays).
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -224,9 +214,7 @@ while (( SECONDS - started_at < DURATION )); do
   wait "$RX_PID" || fail "receive round $ROUND failed"
   RX_PID=""
 
-  # The AppData acceptance window is 15 ms; some frames can still be rejected
-  # as replays if they land inside the same key epoch. Require at least one
-  # round trip to be accounted for instead of exact byte-for-byte equality.
+  # Require at least one verified round trip within acceptance window.
   rx_count=0
   tx_count=0
   [[ -s "$tx" ]] && tx_count=$(wc -l < "$tx")

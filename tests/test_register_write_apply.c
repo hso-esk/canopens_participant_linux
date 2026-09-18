@@ -132,32 +132,14 @@ int main(void) {
   spseckey_free(p.comm_keys.spsec_keys[3]);
   p.comm_keys.spsec_keys[3] = NULL;
 
-  // Case 2: Index 1 (provisioning) first write -> SPSEC_SUCCESS.
-  // Set key_id to 0x12345678 to arm write-once. Second write -> SPSEC_ERROR_KEY_ALREADY_SET.
-  printf("Testing apply_key() Case 2: Index 1 (provisioning) write-once...\n");
+  // Case 2: Index 1 (provisioning) disallowed via protocol -> SPSEC_ERROR_REGISTER_ACCESS_DENIED
+  printf("Testing apply_key() Case 2: Index 1 (provisioning) disallowed via protocol...\n");
   memset(test_key, 0xBB, KEY_LEN);
   {
-    // First write
     spsec_ret_t ret = apply_key(&p, 1, test_key);
-    CHECK(ret == SPSEC_SUCCESS, "Case 2a: first write returns SPSEC_SUCCESS");
-    CHECK(p.comm_keys.spsec_keys[1] != NULL, "Case 2a: slot is non-NULL");
-
-    // Arm write-once by setting a non-INVALID, non-RESERVED key_id
-    p.comm_keys.spsec_keys[1]->key_id = 0x12345678;
-
-    // Second write should fail
-    memset(test_key, 0xCC, KEY_LEN);
-    ret = apply_key(&p, 1, test_key);
-    CHECK(ret == SPSEC_ERROR_KEY_ALREADY_SET, "Case 2b: second write returns SPSEC_ERROR_KEY_ALREADY_SET");
-    // Verify original key material unchanged
-    uint8_t expected_key[KEY_LEN];
-    memset(expected_key, 0xBB, KEY_LEN);
-    CHECK(memcmp(spseckey_get_key(p.comm_keys.spsec_keys[1]), expected_key, KEY_LEN) == 0,
-          "Case 2b: original key material preserved");
+    CHECK(ret == SPSEC_ERROR_REGISTER_ACCESS_DENIED, "Case 2: returns SPSEC_ERROR_REGISTER_ACCESS_DENIED");
+    CHECK(p.comm_keys.spsec_keys[1] == NULL, "Case 2: slot remains NULL");
   }
-  // Clean up
-  spseckey_free(p.comm_keys.spsec_keys[1]);
-  p.comm_keys.spsec_keys[1] = NULL;
 
   // Case 3: Index 2 (integrator), same already-set pattern -> SPSEC_ERROR_KEY_ALREADY_SET.
   printf("Testing apply_key() Case 3: Index 2 (integrator) write-once...\n");
@@ -171,10 +153,29 @@ int main(void) {
     // Arm write-once by setting a non-INVALID, non-RESERVED key_id
     p.comm_keys.spsec_keys[2]->key_id = 0xDEADBEEF;
 
-    // Second write should fail
+    // Second write should fail when Prov Key is not installed
     memset(test_key, 0xEE, KEY_LEN);
     ret = apply_key(&p, 2, test_key);
     CHECK(ret == SPSEC_ERROR_KEY_ALREADY_SET, "Case 3b: second write returns SPSEC_ERROR_KEY_ALREADY_SET");
+  }
+
+  // Case 3c: Index 2 (integrator) when Provisioning Key IS installed -> rewrite allowed (Rule 4)
+  printf("Testing apply_key() Case 3c: Index 2 with Provisioning Key installed allows rewrite...\n");
+  {
+    uint8_t prov_key[KEY_LEN];
+    memset(prov_key, 0x11, KEY_LEN);
+    p.comm_keys.spsec_keys[1] = spseckey_new(0x11111111u, prov_key);
+
+    // With Prov Key installed, writing Integrator Key succeeds even if already set
+    memset(test_key, 0x99, KEY_LEN);
+    spsec_ret_t ret = apply_key(&p, 2, test_key);
+    CHECK(ret == SPSEC_SUCCESS, "Case 3c: rewrite succeeds when Prov Key is installed");
+    CHECK(memcmp(spseckey_get_key(p.comm_keys.spsec_keys[2]), test_key, KEY_LEN) == 0,
+          "Case 3c: new key material stored");
+
+    // Clean up prov key
+    spseckey_free(p.comm_keys.spsec_keys[1]);
+    p.comm_keys.spsec_keys[1] = NULL;
   }
   // Clean up
   spseckey_free(p.comm_keys.spsec_keys[2]);
@@ -250,25 +251,14 @@ int main(void) {
   spseckey_free(p.comm_keys.spsec_keys[3]);
   p.comm_keys.spsec_keys[3] = NULL;
 
-  // Case 8: Index 1 already-set (same setup as apply_key case 2) -> SPSEC_ERROR_KEY_ALREADY_SET
-  printf("Testing apply_key_id() Case 8: Index 1 already-set...\n");
+  // Case 8: Index 1 key ID disallowed via protocol -> SPSEC_ERROR_REGISTER_ACCESS_DENIED
+  printf("Testing apply_key_id() Case 8: Index 1 disallowed via protocol...\n");
   {
-    // First, create a key at index 1 and arm write-once
-    memset(test_key, 0xFF, KEY_LEN);
-    spsec_ret_t ret = apply_key(&p, 1, test_key);
-    CHECK(ret == SPSEC_SUCCESS, "Case 8 setup: first key write succeeds");
-    // Arm write-once
-    p.comm_keys.spsec_keys[1]->key_id = 0x12345678;
-
-    // Now try to write key_id - should fail
     uint8_t data[4];
     encode_key_id_le(0x87654321, data);
-    ret = apply_key_id(&p, 1, data, 4);
-    CHECK(ret == SPSEC_ERROR_KEY_ALREADY_SET, "Case 8: returns SPSEC_ERROR_KEY_ALREADY_SET");
+    spsec_ret_t ret = apply_key_id(&p, 1, data, 4);
+    CHECK(ret == SPSEC_ERROR_REGISTER_ACCESS_DENIED, "Case 8: returns SPSEC_ERROR_REGISTER_ACCESS_DENIED");
   }
-  // Clean up
-  spseckey_free(p.comm_keys.spsec_keys[1]);
-  p.comm_keys.spsec_keys[1] = NULL;
 
   // ============================================================
   // Final cleanup

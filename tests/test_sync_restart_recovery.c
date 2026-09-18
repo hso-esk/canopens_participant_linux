@@ -116,9 +116,7 @@ int main(void) {
     destroy_test_participant(&p);
   }
 
-  // A verified broadcast refreshes last_successful and re-arms the window.
-  // Before this fix (session_loops_common.c), last_successful only advanced
-  // on parameter auth, so the 60s watchdog fired on healthy nodes.
+  // Verified broadcast refreshes last_successful timestamp.
   printf("Testing a refreshed last_successful re-arms the window...\n");
   {
     Participant p;
